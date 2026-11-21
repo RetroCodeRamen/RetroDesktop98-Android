@@ -1,0 +1,59 @@
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.1"
+      - name: Configure signing (optional)
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.RETRO98_KEYSTORE_B64 }}
+          KEY_PASSWORD: ${{ secrets.RETRO98_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RETRO98_KEY_ALIAS }}
+        run: |
+          if [[ -n "$KEYSTORE_B64" && -n "$KEY_PASSWORD" ]]; then
+            printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/retro98-release.p12"
+            echo "RETRO98_KEYSTORE=$RUNNER_TEMP/retro98-release.p12" >> "$GITHUB_ENV"
+            echo "RETRO98_KEY_ALIAS=${KEY_ALIAS:-retro98}" >> "$GITHUB_ENV"
+            echo "RETRO98_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "RELEASE_SIGNED=true" >> "$GITHUB_ENV"
+          else
+            echo "RELEASE_SIGNED=false" >> "$GITHUB_ENV"
+            echo "::warning::Building with a temporary development signing key. This APK cannot update the existing v2.7 installation."
+          fi
+      - name: Build APK
+        run: bash build-apk.sh "$RUNNER_TEMP/RetroDesktop98.apk"
+      - name: Verify APK packaging
+        run: |
+          python3 tests/check_apk_package.py "$RUNNER_TEMP/RetroDesktop98.apk"
+          "$ANDROID_HOME/build-tools/35.0.1/apksigner" verify --verbose "$RUNNER_TEMP/RetroDesktop98.apk"
+      - name: Upload APK to workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: RetroDesktop98-Android-apk
+          path: ${{ runner.temp }}/RetroDesktop98.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish release APK (only with original signing key)
+        if: startsWith(github.ref, 'refs/tags/v') && env.RELEASE_SIGNED == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ runner.temp }}/RetroDesktop98.apk
