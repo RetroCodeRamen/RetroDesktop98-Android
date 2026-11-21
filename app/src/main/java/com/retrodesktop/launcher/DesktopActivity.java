@@ -995,6 +995,16 @@ public class DesktopActivity extends Activity {
         }
 
         @JavascriptInterface
+        public String luaDatabase(String session, String program, String action, String sql, String params) {
+            return LuaProjectDatabase.operate(DesktopActivity.this, session, program, action, sql, params).toString();
+        }
+
+        @JavascriptInterface
+        public void luaDatabaseClose(String session) {
+            LuaProjectDatabase.closeSession(session);
+        }
+
+        @JavascriptInterface
         public String loadLuaProject() {
             return preferences.getString("lua-project", "");
         }
