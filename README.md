@@ -11,6 +11,26 @@ Built as part of **[Retro Code Ramen](https://retrocodera.men/)** — where we b
 
 ---
 
+## A look around the desktop
+
+A few snapshots from inside this tiny beige box. All seven are rendered from the **real v2.7 launcher interface** (HTML, CSS, and JavaScript), at phone-sized viewports. They're **interface previews, not screenshots taken on an Android phone**; the DOSBox Store preview shows the game's built-in catalog, not a live download.
+
+| The desktop, where it all begins | Start → Programs, naturally |
+| :---: | :---: |
+| ![Teal Retro Desktop 98 desktop and open Windows 98-style Start menu](docs/screenshots/01-desktop-start.png) | ![Programs window showing built-in accessories and classic applications](docs/screenshots/02-programs.png) |
+
+**Lua Studio:** Drag controls onto a form, double-click an event, and pretend it's 1998 again (except the code is Lua).
+
+![Lua Studio form designer with toolbox, Click Counter project, and properties panel](docs/screenshots/03-lua-studio.png)
+
+| DOSBox Store | Clippy, because of course |
+| :---: | :---: |
+| ![DOSBox Store with demo listings for MechWarrior 2, The Incredible Machine, and The Dig](docs/screenshots/04-dosbox-store.png) | ![Clippy taskbar assistant with offline model download and Search Web controls](docs/screenshots/05-clippy.png) |
+
+| Minesweeper: productivity at its finest | Display Properties: make it yours |
+| :---: | :---: |
+| ![Minesweeper open as a Windows 98-style window](docs/screenshots/06-minesweeper.png) | ![Windows 98-style Display Properties panel](docs/screenshots/07-display-properties.png) |
+
 ## What is this thing?
 
 Remember when your computer had a personality? When the Start button actually felt like the start of an adventure, every folder was a little mystery, and finding an EXE on a questionable shareware CD was a perfectly reasonable Saturday afternoon?
@@ -43,7 +63,7 @@ No ads are built into the launcher. The goal is to make your phone feel more lik
 
 ## First boot
 
-1. Install a compatible Retro Desktop 98 APK (or [build your own](#building-it-yourself)). **There is not yet an official APK attached to this repository's GitHub Releases page.**
+1. Install a compatible Retro Desktop 98 APK (or [build your own](#building-it-yourself)). Download the [working v2.7 APK from GitHub Releases](https://github.com/RetroCodeRamen/RetroDesktop98-Android/releases/download/v2.7/RetroDesktop98-v2.7.apk).
 2. Open **Retro Desktop 98 (Resizable)** and use **Open Settings**, or go to Android **Settings → Apps → Default apps → Home app**.
 3. Select **Retro Desktop 98 (Resizable)** as your Home app.
 4. Press Home. Look at the teal desktop. Resist the urge to reorganize your entire life into folders. Or don't.
