@@ -28,6 +28,11 @@ function launchLuaProject(project, callbacks) {
       announce("Lua’s event queue is full.");
       return;
     }
+    // While Lua is busy, repeated Change events for a control are represented by
+    // one pending event; writeInput() retains the latest value.
+    if (event === "Change" && queue.some(item => item.form === form && item.name === name && item.event === "Change")) {
+      return;
+    }
     queue.push({form, name, event, ...(args ? {args} : {})});
     dispatch();
   }
@@ -230,10 +235,20 @@ function renderLuaPreview(win) {
           win.options.writeInput(form.name, control.name, value);
         }
       };
-      parts.input.addEventListener("input", readInput);
-      parts.input.addEventListener("change", () => {
+      parts.input.addEventListener("input", () => {
+        const previous = control[inputProperty];
         readInput();
-        send(control.name, "Change");
+        // VB6 TextBox_Change fires when the user edits the field, not only on blur.
+        if (luaTextTypes.includes(control.type) && previous !== control[inputProperty]) {
+          send(control.name, "Change");
+        }
+      });
+      parts.input.addEventListener("change", () => {
+        const previous = control[inputProperty];
+        readInput();
+        if (!luaTextTypes.includes(control.type) || previous !== control[inputProperty]) {
+          send(control.name, "Change");
+        }
       });
     }
     shell.append(parts.node);

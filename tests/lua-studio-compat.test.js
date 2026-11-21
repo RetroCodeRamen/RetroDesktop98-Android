@@ -33,4 +33,46 @@ const src = fs.readFileSync(path.join(assets, 'lua-studio.js'), 'utf8');
 assert.match(src,/function travelHistory\(direction\)/);
 assert.match(src,/function pasteControls\(\)/);
 assert.match(src,/const eventKinds = element\("select"/);
-console.log('Lua Studio format compatibility, event definitions, example projects and editor hooks: PASS');
+
+// Exercise the real preview event queue without Android. Rapid text edits must
+// preserve the latest value without flooding the Lua service with duplicates.
+const calls = [];
+const opened = [];
+context.crypto = {getRandomValues: array => {array.fill(7); return array;}};
+context.native = {luaCommand: (action, session, data) => calls.push({action, session, data})};
+context.openWindow = (kind, id, options) => {
+  const win = {id, options, refreshLuaForm() {}};
+  opened.push(win);
+  return win;
+};
+context.announce = () => {};
+context.closeWindow = () => {};
+context.desktopVisible = true;
+context.document = {hidden: false};
+vm.runInContext(fs.readFileSync(path.join(assets, 'lua-preview.js'), 'utf8'), context,
+  {filename:'lua-preview.js'});
+context.sample = evaluate('luaProject(luaExample("events"))');
+context.host = evaluate('launchLuaProject(sample, {})');
+evaluate('host.start()');
+assert.equal(calls[0].action, 'start');
+const session = calls[0].session;
+// Finish initial Form_Load (the WebView would normally receive this reply).
+context.initialReply = {session, output: [], patches: {}, navigation: []};
+evaluate('host.reply(initialReply)');
+const events = opened[0].options;
+events.writeInput('Form1', 'Text1', 'a');
+events.sendEvent('Form1', 'Text1', 'Change');
+assert.equal(calls.filter(c => c.action === 'event').length, 1);
+events.writeInput('Form1', 'Text1', 'ab');
+events.sendEvent('Form1', 'Text1', 'Change');
+events.writeInput('Form1', 'Text1', 'abc');
+events.sendEvent('Form1', 'Text1', 'Change');
+context.eventReply = {session, output: [], patches: {}, navigation: []};
+evaluate('host.reply(eventReply)');
+assert.equal(calls.filter(c => c.action === 'event').length, 2);
+const last = JSON.parse(calls.at(-1).data);
+assert.equal(last.event, 'Change');
+assert.equal(last.updates.Text1, 'abc');
+evaluate('host.stop()');
+
+console.log('Lua Studio model, input event coalescing, migration, and editor hooks: PASS');

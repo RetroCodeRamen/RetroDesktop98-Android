@@ -429,6 +429,8 @@ function renderLuaStudio(win) {
     for (const item of designerClipboard) {
       const name = luaFreeName(luaControlTypes[item.type].prefix, formObjectNames());
       const control = {...JSON.parse(JSON.stringify(item)), name};
+      control.width = Math.min(control.width, form.width);
+      control.height = Math.min(control.height, form.height);
       control.x = clamp(item.x - left + 12, 0, form.width - control.width);
       control.y = clamp(item.y - top + 12, 0, form.height - control.height);
       form.controls.push(control);
