@@ -1,0 +1,38 @@
+name: Publish working v2.7 APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'release-payloads/v2.7/**'
+      - '.github/workflows/publish-v2.7.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out APK payload
+        uses: actions/checkout@v4
+
+      - name: Reassemble and verify the phone-tested APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release"
+          cat release-payloads/v2.7/part-*.xz.part > "$RUNNER_TEMP/release/RetroDesktop98-v2.7.apk.xz"
+          xz -dc "$RUNNER_TEMP/release/RetroDesktop98-v2.7.apk.xz" > "$RUNNER_TEMP/release/RetroDesktop98-v2.7.apk"
+          echo "518fdc2727bbb86d776dc9409071c9850a13d75b8d9f18348c0619d2bd0f76e5  $RUNNER_TEMP/release/RetroDesktop98-v2.7.apk" | sha256sum -c -
+          test "$(stat -c%s "$RUNNER_TEMP/release/RetroDesktop98-v2.7.apk")" -eq 53545256
+
+      - name: Publish APK to GitHub Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view v2.7 >/dev/null 2>&1 || gh release create v2.7 --target "$GITHUB_SHA" --title "Retro Desktop 98 v2.7" --notes "Phone-tested APK build. Sound Blaster audio, DOSBox D-pad and corrected Android resource alignment. APK SHA-256: 518fdc2727bbb86d776dc9409071c9850a13d75b8d9f18348c0619d2bd0f76e5"
+          gh release upload v2.7 "$RUNNER_TEMP/release/RetroDesktop98-v2.7.apk" --clobber
