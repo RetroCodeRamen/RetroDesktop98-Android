@@ -65,7 +65,7 @@ const demo=JSON.parse(JSON.stringify(evalJs("luaDatabaseExample()")));
 assert.equal(demo.name,"SQLite Address Book");
 assert.ok(demo.forms[0].controls.some(c=>c.type==="listview"));
 assert.match(demo.forms[0].code, /db\.exec\("INSERT INTO contacts\(name\) VALUES \(\?\)", name\)/);
-assert.match(demo.forms[0].code, /ui\.setItems\("Contacts", event\.text\)/);
+assert.match(demo.forms[0].code, /ui\.setItems\("Contacts",\s*event\.text\)/);
 assert.ok(evalJs('luaFormEvents.includes("DatabaseResult")'));
 ctx.project=demo;
 ctx.callbacks={};

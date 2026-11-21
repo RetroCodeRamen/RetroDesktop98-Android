@@ -2,7 +2,7 @@ name: Android APK
 
 on:
   push:
-    branches: [main, 'testing/lua-studio-phase6-replacement']
+    branches: [main, 'testing/lua-studio-phase6-replacement', 'feature/dos-gaming-deluxe-v29']
     tags: ['v*']
   pull_request:
     branches: [main, 'feature/dos-gaming-deluxe-v29']
