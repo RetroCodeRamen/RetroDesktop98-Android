@@ -994,6 +994,17 @@ public class DesktopActivity extends Activity {
                     action == null ? "" : action, name, text).toString();
         }
 
+        // SQLite calls use a per-program database, never the launcher's database.
+        @JavascriptInterface
+        public String luaDatabase(String session, String program, String action, String sql, String parameters) {
+            return LuaProjectDatabase.operate(DesktopActivity.this, session, program, action, sql, parameters).toString();
+        }
+
+        @JavascriptInterface
+        public void luaDatabaseClose(String session) {
+            LuaProjectDatabase.closeSession(session);
+        }
+
         @JavascriptInterface
         public String loadLuaProject() {
             return preferences.getString("lua-project", "");

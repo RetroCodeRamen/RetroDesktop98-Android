@@ -157,6 +157,7 @@ function launchLuaProject(project, callbacks) {
     }
     for (const form of windows.keys()) hide(form);
     activeLuaProjects.delete(session);
+    native?.luaDatabaseClose?.(session);
     callbacks.onEnd?.();
   }
 
@@ -183,6 +184,7 @@ function launchLuaProject(project, callbacks) {
     if (result.ended) {
       ended = true;
       activeLuaProjects.delete(session);
+      native?.luaDatabaseClose?.(session);
       if (callbacks.closeOnError) { stop(); return; }
       const status = (result.error || "Lua stopped.").split("\n")[0];
       if (windows.size) {
@@ -214,6 +216,29 @@ function launchLuaProject(project, callbacks) {
         id:request.id, action:request.action, name:request.name || "",
         ok:response.ok === true, text:String(response.text || "").slice(0,16384),
         error:String(response.error || "").slice(0,180)
+      }});
+    }
+    // SQLite is owned by the native host, never directly by isolated LuaJ.
+    // Previews use an in-memory SQLite database that is closed with the session.
+    for (const request of result.database || []) {
+      if (!states.has(request.form) || !Number.isInteger(request.id) ||
+          !["exec","query"].includes(request.action) ||
+          typeof request.sql !== "string" || request.sql.length > 2048 ||
+          !Array.isArray(request.params) || request.params.length > 4 ||
+          queue.length >= 32) continue;
+      let response;
+      try {
+        response = native?.luaDatabase ?
+          JSON.parse(native.luaDatabase(session, callbacks.storageId || "",
+            request.action, request.sql, JSON.stringify(request.params))) :
+          {ok:false,error:"SQLite is unavailable in this build."};
+      } catch (error) {response={ok:false,error:"Database request failed."};}
+      queue.push({form:request.form,name:"",event:"DatabaseResult",args:{
+        id:request.id,action:request.action,ok:response.ok===true,
+        text:String(response.text||"").slice(0,14000),
+        columns:String(response.columns||"").slice(0,110),
+        count:Number.isInteger(response.count)?response.count:0,
+        error:String(response.error||"").slice(0,180)
       }});
     }
     // Only controls belonging to the current project can open dialogs.

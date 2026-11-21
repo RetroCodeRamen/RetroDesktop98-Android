@@ -7,9 +7,10 @@ const luaEditorSuggestions = {
   "ui.": ["get(", "getAt(", "set(", "setAt(", "show(", "showModal(", "hide(", "unload(", "dialog(", "message(", "setItems(", "setColumns("],
   "files.": ["read(", "write(", "list(", "remove("],
   "store.": ["get(", "set(", "remove("],
+  "db.": ["exec(", "query("],
   "math.": ["abs(", "ceil(", "floor(", "max(", "min(", "random(", "sqrt("],
   "string.": ["char(", "len(", "lower(", "reverse(", "sub(", "upper("],
-  "": ["function", "local", "if", "then", "else", "elseif", "end", "for", "while", "do", "repeat", "until", "return", "print(", "tonumber(", "tostring(", "pairs(", "ipairs(", "ui.", "files.", "store."]
+  "": ["function", "local", "if", "then", "else", "elseif", "end", "for", "while", "do", "repeat", "until", "return", "print(", "tonumber(", "tostring(", "pairs(", "ipairs(", "ui.", "files.", "store.", "db."]
 };
 const luaEditorHintText = {
   "ui.get(": "ui.get(controlName, property[, formName]) → current value",
@@ -20,7 +21,9 @@ const luaEditorHintText = {
   "files.write(": "files.write(filename, text) — sandboxed .txt, .csv or .json",
   "files.list(": "files.list() — response arrives in Form_FileResult",
   "store.get(": "store.get(key) — per-app saved setting",
-  "store.set(": "store.set(key, value) — save a small setting"
+  "store.set(": "store.set(key, value) — save a small setting",
+  "db.exec(": "db.exec(sql, arg1, ...arg4) — parameterized SQL writes",
+  "db.query(": "db.query(sql, arg1, ...arg4) — Form_DatabaseResult(event)"
 };
 
 function luaEscapeHtml(value) {

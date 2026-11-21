@@ -2,7 +2,7 @@ name: Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'testing/lua-studio-phase6-replacement']
     tags: ['v*']
   pull_request:
     branches: [main]

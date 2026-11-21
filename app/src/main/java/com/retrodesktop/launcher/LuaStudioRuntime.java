@@ -41,6 +41,8 @@ final class LuaStudioRuntime {
     private JSONArray presentation;
     private JSONArray dialogs;
     private JSONArray fileRequests;
+    private JSONArray databaseRequests;
+    private int databaseSequence;
     private int fileSequence;
     private int dialogSequence;
     private final Map<String, String> storage = new LinkedHashMap<>();
@@ -157,14 +159,14 @@ final class LuaStudioRuntime {
         JSONObject raw = input.optJSONObject("args");
         if (raw == null) return LuaValue.NIL;
         LuaTable values = new LuaTable();
-        for (String key : new String[]{"x", "y", "button", "id"}) {
+        for (String key : new String[]{"x", "y", "button", "id", "count"}) {
             if (raw.has(key)) values.set(key, LuaValue.valueOf(Math.max("id".equals(key) ? 0 : -4096, Math.min("id".equals(key) ? 1000000 : 4096, raw.optInt(key)))));
         }
         for (String key : new String[]{"shift", "ctrl", "alt", "accepted", "ok"}) {
             if (raw.has(key)) values.set(key, LuaValue.valueOf(raw.optBoolean(key)));
         }
-        for (String key : new String[]{"key", "code", "kind", "value", "name", "action", "error", "text"}) {
-            if (raw.has(key)) values.set(key, LuaValue.valueOf(shorten(raw.optString(key), "text".equals(key) ? 16384 : "error".equals(key) ? 180 : "value".equals(key) ? 100 : 40)));
+        for (String key : new String[]{"key", "code", "kind", "value", "name", "action", "error", "text", "columns"}) {
+            if (raw.has(key)) values.set(key, LuaValue.valueOf(shorten(raw.optString(key), "text".equals(key) ? 16384 : "error".equals(key) ? 180 : "value".equals(key) ? 100 : "columns".equals(key) ? 110 : 40)));
         }
         return values;
     }
@@ -172,7 +174,7 @@ final class LuaStudioRuntime {
     private static boolean isFormEvent(String action) {
         return "Click".equals(action) || "DblClick".equals(action) || "MouseDown".equals(action)
                 || "MouseUp".equals(action) || "KeyDown".equals(action) || "KeyUp".equals(action)
-                || "DialogResult".equals(action) || "FileResult".equals(action);
+                || "DialogResult".equals(action) || "FileResult".equals(action) || "DatabaseResult".equals(action);
     }
 
     private void applyInputs(JSONObject updates) throws JSONException {
@@ -445,6 +447,32 @@ final class LuaStudioRuntime {
                 }
             });
         }
+        // Database access is always asynchronous. The isolated LuaJ process only
+        // emits bounded SQL requests; the host owns its private SQLite files.
+        LuaTable db = new LuaTable();
+        for (String operation : new String[]{"exec", "query"}) {
+            db.set(operation, new VarArgFunction() {
+                @Override public Varargs invoke(Varargs args) {
+                    if (databaseRequests.length() >= 4) throw new LuaError("Too many database requests in one event.");
+                    String sql = args.checkjstring(1);
+                    if (sql.length() == 0 || sql.length() > 2048) throw new LuaError("SQL must contain 1–2048 characters.");
+                    if (args.narg() > 5) throw new LuaError("At most four SQL arguments are allowed.");
+                    JSONArray parameters = new JSONArray();
+                    for (int i = 2; i <= args.narg(); i++) {
+                        String value = args.arg(i).tojstring();
+                        if (value.length() > 512) throw new LuaError("SQL argument is too long.");
+                        parameters.put(value);
+                    }
+                    int id = ++databaseSequence;
+                    try {
+                        databaseRequests.put(new JSONObject().put("id", id).put("form", current.name)
+                                .put("action", operation).put("sql", sql).put("params", parameters));
+                    } catch (JSONException error) { throw new LuaError("Could not create a database request."); }
+                    return LuaValue.valueOf(id);
+                }
+            });
+        }
+        env.set("db", db);
         env.set("files", files);
         env.set("store", store);
         env.set("ui", ui);
@@ -547,6 +575,7 @@ final class LuaStudioRuntime {
         presentation = new JSONArray();
         dialogs = new JSONArray();
         fileRequests = new JSONArray();
+        databaseRequests = new JSONArray();
         requests.clear();
         message = "";
         patchCount = 0;
@@ -573,7 +602,7 @@ final class LuaStudioRuntime {
         JSONObject changed = legacy ? patches.optJSONObject(startup.name) : patches;
         JSONObject result = new JSONObject().put("output", output).put("patches", changed == null ? new JSONObject() : changed)
                 .put("message", message).put("navigation", presentation).put("dialogs", dialogs).put("files", fileRequests)
-                .put("error", shorten(error, 5000)).put("ended", ended);
+                .put("database", databaseRequests).put("error", shorten(error, 5000)).put("ended", ended);
         if (storageDirty) {
             JSONObject saved = new JSONObject();
             for (Map.Entry<String, String> item : storage.entrySet()) saved.put(item.getKey(), item.getValue());

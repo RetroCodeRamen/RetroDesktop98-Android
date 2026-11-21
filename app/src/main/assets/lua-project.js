@@ -36,7 +36,7 @@ const luaTextTypes = ["text", "multiline"];
 
 // VB6's Object and Procedure dropdowns are separate. Events remain Lua handlers.
 // The first event for each control is its default double-click designer action.
-const luaFormEvents = ["Load", "Activate", "Unload", "Click", "DblClick", "MouseDown", "MouseUp", "KeyDown", "KeyUp", "DialogResult", "FileResult"];
+const luaFormEvents = ["Load", "Activate", "Unload", "Click", "DblClick", "MouseDown", "MouseUp", "KeyDown", "KeyUp", "DialogResult", "FileResult", "DatabaseResult"];
 const luaPointerEvents = ["Click", "DblClick", "MouseDown", "MouseUp"];
 const luaFocusEvents = ["GotFocus", "LostFocus", "KeyDown", "KeyUp"];
 function luaEventsForType(type) {
