@@ -50,6 +50,7 @@ function startPublishedLua(app) {
     return;
   }
   const program = launchLuaProject(project, {
+    storageId: app.id,
     closeOnError: true,
     onError: message => announce(app.name + " · " + message.split("\n")[0]),
     onEnd: () => {
@@ -76,6 +77,7 @@ function removePublishedLua(app) {
         return;
       }
       runningLuaPrograms.get(app.id)?.stop();
+      try { localStorage.removeItem("retro98-lua-storage:" + app.id); } catch (error) {}
       state.items = state.items.filter(item => !(item.type === "builtin" && item.target === app.id));
       if (selected && !itemById(selected.id)) selectItem(null, null);
       applyState();

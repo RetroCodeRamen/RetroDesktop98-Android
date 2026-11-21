@@ -145,3 +145,100 @@ assert.equal(calls.length, afterOpen+2, 'background form unblocked after hide');
 evaluate('modalHost.stop()');
 
 console.log('Phase 2 control arrays, model migration, runtime API markers, and modal gating: PASS');
+
+// Phase 3: Common Controls preserve the existing v2 project schema. Items are
+// selectable values; StatusBar is read-only text and does not require a WebView.
+const commonProject = copy(evaluate('luaProject(luaCommonControlsExample())'));
+assert.equal(commonProject.version, 2);
+assert.deepEqual(commonProject.forms[0].controls.map(control => control.type),
+  ['treeview','listview','tabstrip','toolbar','statusbar']);
+assert.deepEqual(copy(evaluate(`luaProject(${JSON.stringify(commonProject)})`)), commonProject);
+for (const type of ['treeview','listview','tabstrip','toolbar']) {
+  assert.equal(evaluate(`luaControlTypes.${type}.event`), 'Change');
+  assert.ok(copy(evaluate(`luaEventsForType("${type}")`)).includes('Change'));
+}
+assert.equal(evaluate('luaInputProperty(luaCommonControlsExample().forms[0].controls[0])'), 'value');
+assert.equal(evaluate('luaInputProperty(luaCommonControlsExample().forms[0].controls[4])'), '');
+const optionsProject = copy(commonProject);
+optionsProject.forms[0].controls[0].items = ['Root','Root/Child','B'];
+context.toValidate = optionsProject;
+assert.deepEqual(copy(evaluate('luaProject(toValidate)')).forms[0].controls[0].items, optionsProject.forms[0].controls[0].items);
+optionsProject.forms[0].controls[0].items = Array.from({length:25}, (_, index) => 'Item'+index);
+context.toValidate = optionsProject;
+assert.equal(copy(evaluate('luaProject(toValidate)')).forms[0].controls[0].items.length, 24);
+
+// Dialogs use explicit JSON from the Lua service, and only deliver a result to
+// the originating form. They cannot trigger arbitrary JS or Java reflection.
+const dialogSample = copy(evaluate('luaProject(luaDialogsExample())'));
+assert.match(dialogSample.forms[0].code, /Form_DialogResult\(event\)/);
+assert.ok(copy(evaluate('luaFormEvents')).includes('DialogResult'));
+assert.match(javaRuntime, /ui\.set\("dialog", new VarArgFunction/);
+assert.match(javaRuntime, /ui\.set\("getItems", new VarArgFunction/);
+assert.match(javaRuntime, /ui\.set\("setItems", new VarArgFunction/);
+assert.match(javaRuntime, /"DialogResult"\.equals\(action\)/);
+const previewCode = fs.readFileSync(path.join(assets,'lua-preview.js'),'utf8');
+assert.match(previewCode,/function renderLuaCommonDialog\(win\)/);
+assert.match(previewCode,/dialogQueue/);
+context.commonProject = commonProject;
+context.commonHost = evaluate('launchLuaProject(commonProject, {})');
+const beforeCommon = calls.length;
+evaluate('commonHost.start()');
+const commonSession = calls[beforeCommon].session;
+context.commonReply = {session:commonSession,output:[],patches:{
+  MainForm:{Tree1:{items:['A','B'],value:'B'}}},navigation:[]};
+evaluate('commonHost.reply(commonReply)');
+const commonWin = opened.at(-1);
+assert.deepEqual(copy(commonWin.options.form.controls[0].items), ['A','B']);
+assert.equal(commonWin.options.form.controls[0].value, 'B');
+evaluate('commonHost.stop()');
+context.dialogProject = dialogSample;
+context.dialogHost = evaluate('launchLuaProject(dialogProject, {})');
+const beforeDialogs = calls.length;
+evaluate('dialogHost.start()');
+const dialogSession = calls[beforeDialogs].session;
+context.dialogReply = {session:dialogSession,output:[],patches:{},navigation:[],dialogs:[{
+  id:1,form:'MainForm',kind:'input',title:'Your Name',message:'Name?',defaultValue:'Ada'
+}]};
+evaluate('dialogHost.reply(dialogReply)');
+const dialogWin = opened.at(-1);
+assert.equal(dialogWin.options.luaCommonDialog.kind, 'input');
+const stoppedAt = calls.length;
+opened.at(-2).options.sendEvent('MainForm','Ask1','Click');
+assert.equal(calls.length, stoppedAt, 'background events ignored while dialog is open');
+dialogWin.options.onResult(true, 'Grace');
+assert.equal(calls.length, stoppedAt + 1);
+const answer = JSON.parse(calls.at(-1).data);
+assert.equal(answer.event, 'DialogResult');
+assert.deepEqual(copy(answer.args), {id:1,kind:'input',accepted:true,value:'Grace'});
+dialogWin.options.onResult(true, 'Again');
+assert.equal(calls.length, stoppedAt + 1, 'responding twice to dialog does not deliver two events');
+evaluate('dialogHost.stop()');
+console.log('Phase 3 Common Controls model, dialog routing and item patches: PASS');
+
+// Each published Lua program receives a separate bounded, private key/value
+// namespace. Running the same source in Studio preview must not write it.
+assert.match(javaRuntime, /store\.set\("get", new OneArgFunction/);
+assert.match(javaRuntime, /store\.set\("set", new VarArgFunction/);
+assert.match(javaRuntime, /store\.set\("remove", new OneArgFunction/);
+const storageMap = new Map();
+context.localStorage = {
+  getItem: key => storageMap.get(key) ?? null,
+  setItem: (key, value) => { storageMap.set(key, value); },
+};
+const storeId = 'lua-user-' + 'a'.repeat(32);
+context.storeCallbacks = {storageId:storeId};
+context.storeHost = evaluate('launchLuaProject(commonProject,storeCallbacks)');
+const storeCalls = calls.length;
+evaluate('storeHost.start()');
+const storeSession = calls[storeCalls].session;
+assert.deepEqual(JSON.parse(calls[storeCalls].data)._store, {});
+context.storeReply = {session:storeSession,output:[],patches:{},navigation:[],storage:{theme:'classic'}};
+evaluate('storeHost.reply(storeReply)');
+assert.equal(JSON.parse(storageMap.get('retro98-lua-storage:'+storeId)).theme, 'classic');
+evaluate('storeHost.stop()');
+context.storeHost2 = evaluate('launchLuaProject(commonProject,storeCallbacks)');
+const storeStart2 = calls.length;
+evaluate('storeHost2.start()');
+assert.equal(JSON.parse(calls[storeStart2].data)._store.theme, 'classic');
+evaluate('storeHost2.stop()');
+console.log('Phase 3 per-program persistent store serialization: PASS');

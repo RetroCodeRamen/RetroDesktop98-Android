@@ -53,6 +53,46 @@ function loadLuaProject() {
   }
 }
 
+// One renderer shared by the form designer and running windows. It never
+// interpolates the user's items as HTML; labels are plain text.
+function luaCommonControlItems(control, node) {
+  if (!["treeview", "listview", "tabstrip", "toolbar"].includes(control.type)) return;
+  const items = control.items || [];
+  if (control.type === "treeview" || control.type === "listview") {
+    const signature = JSON.stringify(items);
+    if (node.dataset.items !== signature) {
+      node.replaceChildren();
+      for (const item of items) {
+        const depth = control.type === "treeview" ? Math.min(4, item.split("/").length - 1) : 0;
+        const caption = ("  ".repeat(depth)) + (control.type === "treeview" ? item.split("/").at(-1) : item);
+        node.add(new Option(caption, item));
+      }
+      node.dataset.items = signature;
+    }
+    if (node.value !== control.value) node.value = control.value;
+    return;
+  }
+  const signature = JSON.stringify([items, control.value]);
+  if (node.dataset.items !== signature) {
+    node.replaceChildren();
+    for (const item of items) {
+      const tab = element("button", "bevel lua-common-item", item);
+      tab.type = "button";
+      tab.disabled = !control.enabled;
+      tab.dataset.value = item;
+      tab.setAttribute("aria-pressed", String(item === control.value));
+      tab.addEventListener("click", () => {
+        if (node.value === item) return;
+        node.value = item;
+        node.dispatchEvent(new Event("change", {bubbles: true}));
+      });
+      node.append(tab);
+    }
+    node.dataset.items = signature;
+  }
+  node.value = control.value;
+}
+
 function luaObjectNode(control) {
   let node;
   let text;
@@ -71,11 +111,19 @@ function luaObjectNode(control) {
     text = element("span");
     node.append(check, text);
   } else if (luaChoiceTypes.includes(control.type)) {
-    node = element("select", "text-entry lua-list-control");
+    if (["tabstrip", "toolbar"].includes(control.type)) {
+      node = element("div", "lua-common-strip lua-" + control.type);
+      node.setAttribute("role", "group");
+    } else {
+      node = element("select", "text-entry lua-list-control lua-" + control.type);
+      node.size = ["list", "treeview", "listview"].includes(control.type) ? 4 : 1;
+      if (["list", "combo"].includes(control.type)) {
+        node.add(new Option("", ""));
+        control.items.forEach(item => node.add(new Option(item, item)));
+      }
+    }
     node.setAttribute("aria-label", control.name);
-    if (control.type === "list") node.size = 3;
-    node.add(new Option("", ""));
-    control.items.forEach(item => node.add(new Option(item, item)));
+    luaCommonControlItems(control, node);
   } else if (luaRangeTypes.includes(control.type)) {
     node = element(control.type === "progress" ? "progress" : "input", "lua-range lua-" + control.type);
     if (control.type !== "progress") node.type = "range";
@@ -93,6 +141,8 @@ function luaObjectNode(control) {
     if (control.type === "timer") node.append(retroIcon("clock", 17), element("span", "", control.name));
     if (control.type !== "timer") node.style.setProperty("--draw-color", control.color);
     if (control.type === "shape" && control.shape === "ellipse") node.classList.add("lua-ellipse");
+  } else if (control.type === "statusbar") {
+    node = text = element("div", "lua-statusbar-control");
   } else if (control.type === "frame") {
     node = element("fieldset", "lua-group");
     text = element("legend");
@@ -115,6 +165,7 @@ function luaInputProperty(control) {
 function updateLuaObject(control, parts, design) {
   const {node, text, input} = parts;
   if (text) text.textContent = control.text;
+  luaCommonControlItems(control, node);
   if (input) {
     if (luaTickTypes.includes(control.type)) input.checked = control.checked;
     else {
@@ -1301,7 +1352,9 @@ function renderLuaStudio(win) {
     ["Event Playground", "lua", () => switchProject(luaExample("events"))],
     ["Two-Form Project", "lua", () => switchProject(luaTwoFormExample())],
     ["Control Arrays", "lua", () => switchProject(luaControlArrayExample())],
-    ["Modal Dialog", "lua", () => switchProject(luaModalExample())]
+    ["Modal Dialog", "lua", () => switchProject(luaModalExample())],
+    ["Common Controls", "lua", () => switchProject(luaCommonControlsExample())],
+    ["Common Dialogs", "lua", () => switchProject(luaDialogsExample())]
   ]);
   const help = windowMenu("Help", [
     ["Lua form events", "lua", () => showLuaHelp()],
@@ -1572,6 +1625,10 @@ function showLuaHelp() {
       "Use print() for Immediate output and ui.message() for a message. The Code pane has VB6-style Object and Event selectors. " +
       "Change(value) receives the changed value. KeyDown(event), MouseDown(event), and DblClick(event) receive " +
       "an event table with key, code, x, y, button, shift, ctrl, and alt where applicable. " +
+      "TreeView, ListView, TabStrip and Toolbar use an Items list and Value selection; StatusBar uses Text. " +
+      "Use ui.setItems(name, newlineSeparatedItems) to replace selectable options. " +
+      "ui.dialog(kind, title, message, defaultValue) opens a nonblocking message, confirm, input or color dialog. " +
+      "Handle Form_DialogResult(event) with event.id, event.kind, event.accepted and event.value. " +
       "Use Edit for designer Undo, Redo, Copy, and Paste. Control arrays share one handler: " +
       "Buttons_Click(index, event). Use ui.getAt(array, index, property) or " +
       "ui.setAt(array, index, property, value). ui.showModal(form) displays a modal window " +
@@ -1599,7 +1656,12 @@ function showLuaBrowser(studio) {
     ["ui.setAt(array, index, property, value, form)", "Set one indexed control member. For example, ui.setAt('Buttons', 0, 'text', 'Go')."],
     ["ui.showModal(form)", "Show a form and prevent input to other forms in this Lua project until the modal is hidden or unloaded. Non-blocking for Lua scripts."],
     ["Control arrays", "Select a control and choose Create Control Array. Duplicate it for new indexes. Use shared handlers, e.g. Buttons_Click(index, event)."],
-    ["ui.message(text)", "Show a message in the preview and log it to Immediate."],
+    ["ui.message(text)", "Write a nonmodal message to the preview status and Immediate."],
+    ["ui.dialog(kind, title, message, defaultValue)", "Open message, confirm, input, or color dialog. Returns a request ID; handle Form_DialogResult(event)."],
+    ["Form_DialogResult(event)", "Async dialog result: event.id, event.kind, event.accepted, event.value. No blocking or synchronous return."],
+    ["ui.getItems(name, form)", "Return newline-separated items for a ListBox, ComboBox, TreeView, ListView, TabStrip or Toolbar."],
+    ["ui.setItems(name, text, form)", "Replace a selectable control's items with newline-separated names (up to 24)."],
+    ["store.get(key), store.set(key, value), store.remove(key)", "Per-program small string settings store. Persisted for published Lua programs, temporary in Studio Run."],
     ["*_Change(value)", "Changed text, checkbox, selection or scrollbar. First argument is the new value."],
     ["*_KeyDown(event)", "Keyboard event table: key, code, shift, ctrl, alt."],
     ["*_MouseDown(event)", "Pointer event table: x, y, button, shift, ctrl, alt."],

@@ -678,6 +678,7 @@ function openWindow(kind, id = "$" + kind, options = {}) {
   else if (kind === "channels") renderChannelSettings(win);
   else if (kind === "terminal-connect") renderTerminalConnect(win);
   else if (kind === "lua-preview") renderLuaPreview(win);
+  else if (kind === "lua-common-dialog") renderLuaCommonDialog(win);
   else if (kind === "lua-reference") options.render(win);
   else if (options.dialog) renderDialog(win);
   else if (DESKTOP_APPS.has(kind)) DESKTOP_APPS.get(kind).render(win);

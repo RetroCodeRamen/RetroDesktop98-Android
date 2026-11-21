@@ -4,6 +4,18 @@ const activeLuaProjects = new Map();
 
 function launchLuaProject(project, callbacks) {
   const session = luaSession();
+  // A published program has its own stable ID and its own small storage bucket.
+  // Studio previews are deliberately ephemeral, avoiding accidental writes.
+  const storageKey = /^lua-user-[a-f0-9]{32}$/.test(callbacks.storageId || "")
+    ? "retro98-lua-storage:" + callbacks.storageId : "";
+  let storage = {};
+  if (storageKey) {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(storageKey) || "{}");
+      if (parsed && !Array.isArray(parsed) && typeof parsed === "object" &&
+          JSON.stringify(parsed).length <= 9000) storage = parsed;
+    } catch (error) { /* malformed old storage starts empty */ }
+  }
   const originals = new Map(project.forms.map(form => [form.name, form]));
   const states = new Map(project.forms.map(form => [form.name, JSON.parse(JSON.stringify(form))]));
   const windows = new Map();
@@ -12,13 +24,15 @@ function launchLuaProject(project, callbacks) {
   // Modal windows are managed per Lua session, not as global Android windows.
   // Only the top modal form receives user input until it is hidden/unloaded.
   const modalOrder = [];
+  const dialogQueue = [];
+  let activeDialog = null;
   const topModal = () => modalOrder.at(-1) || "";
   let busy = true;
   let ended = false;
   let paused = false;
 
   function dispatch() {
-    if (busy || ended || paused || !queue.length) return;
+    if (busy || ended || paused || activeDialog || !queue.length) return;
     const event = queue.shift();
     const updates = Object.fromEntries(changes.get(event.form) || []);
     changes.delete(event.form);
@@ -27,7 +41,8 @@ function launchLuaProject(project, callbacks) {
   }
 
   function sendEvent(form, name, event, args = null) {
-    if (ended || (topModal() && form !== topModal()) ||
+    if (ended || (activeDialog && event !== "DialogResult") ||
+        (topModal() && form !== topModal()) ||
         (event === "Timer" && (paused || busy || !desktopVisible || document.hidden))) return;
     if (queue.length >= 32) {
       announce("Lua’s event queue is full.");
@@ -45,6 +60,28 @@ function launchLuaProject(project, callbacks) {
   function writeInput(form, name, value) {
     if (!changes.has(form)) changes.set(form, new Map());
     changes.get(form).set(name, value);
+  }
+
+  // The Lua VM never touches WebView APIs directly. UI requests arrive as
+  // bounded JSON commands and deliver their result as a normal Lua form event.
+  function showNextDialog() {
+    if (ended || activeDialog || !dialogQueue.length) return;
+    const request = dialogQueue.shift();
+    if (!states.has(request.form)) { showNextDialog(); return; }
+    activeDialog = request;
+    for (const win of windows.values()) win.refreshLuaForm(true, "Answer the dialog to continue");
+    openWindow("lua-common-dialog", "$lua-dialog:" + session, {
+      title: request.title, icon: "lua", height: 224, dialog: true,
+      luaCommonDialog: request,
+      onResult(accepted, value) {
+        if (ended || activeDialog !== request) return;
+        activeDialog = null;
+        sendEvent(request.form, "", "DialogResult", {
+          id: request.id, kind: request.kind, accepted: Boolean(accepted), value: String(value).slice(0, 100)
+        });
+        showNextDialog();
+      }
+    });
   }
 
   function show(form) {
@@ -82,6 +119,11 @@ function launchLuaProject(project, callbacks) {
   function stop() {
     if (!ended) native.luaCommand("stop", session, "");
     ended = true;
+    dialogQueue.length = 0;
+    if (activeDialog) {
+      activeDialog = null;
+      closeWindow("$lua-dialog:" + session);
+    }
     for (const form of windows.keys()) hide(form);
     activeLuaProjects.delete(session);
     callbacks.onEnd?.();
@@ -97,6 +139,14 @@ function launchLuaProject(project, callbacks) {
     }
     busy = false;
     paused = false;
+    if (storageKey && result.storage && typeof result.storage === "object" && !Array.isArray(result.storage)) {
+      try {
+        if (JSON.stringify(result.storage).length <= 9000) {
+          storage = result.storage;
+          localStorage.setItem(storageKey, JSON.stringify(storage));
+        }
+      } catch (error) { announce("Lua program settings could not be saved."); }
+    }
     if (result.output?.length) callbacks.onLog?.(result.output);
     if (result.error) callbacks.onError?.(result.error);
     if (result.ended) {
@@ -112,6 +162,12 @@ function launchLuaProject(project, callbacks) {
       }
       callbacks.onEnd?.();
       return;
+    }
+    // Only controls belonging to the current project can open dialogs.
+    for (const request of result.dialogs || []) {
+      if (states.has(request.form) && Number.isInteger(request.id) &&
+          ["message", "confirm", "input", "color"].includes(request.kind) &&
+          dialogQueue.length < 6) dialogQueue.push(request);
     }
     const presentation = new Map();
     for (const operation of result.navigation || []) {
@@ -141,6 +197,9 @@ function launchLuaProject(project, callbacks) {
       for (const [name, patch] of Object.entries(changesByControl)) {
         const control = model.controls.find(entry => entry.name === name);
         if (!control) continue;
+        if (Array.isArray(patch.items) && luaChoiceTypes.includes(control.type)) {
+          control.items = patch.items.slice(0, 24).filter(item => typeof item === "string" && item.length <= 60);
+        }
         for (const property of ["text", "checked", "value", "interval", "enabled", "visible"]) {
           if (Object.prototype.hasOwnProperty.call(patch, property) &&
               !(property === luaInputProperty(control) && changes.get(key)?.has(name))) {
@@ -156,10 +215,12 @@ function launchLuaProject(project, callbacks) {
     if (result.message) announce("Lua: " + result.message);
     for (const win of windows.values()) {
       const blockedByModal = !!topModal() && win.options.form.name !== topModal();
-      win.refreshLuaForm(blockedByModal, blockedByModal ? "A modal dialog is open" : status);
+      const blocked = blockedByModal || !!activeDialog || dialogQueue.length > 0;
+      win.refreshLuaForm(blocked, activeDialog ? "Answer the dialog to continue" :
+        blockedByModal ? "A modal dialog is open" : status);
     }
     if (!windows.size) stop();
-    else dispatch();
+    else { showNextDialog(); dispatch(); }
   }
 
   const host = {
@@ -167,7 +228,7 @@ function launchLuaProject(project, callbacks) {
     start() {
       activeLuaProjects.set(session, host);
       show(project.startup);
-      native.luaCommand("start", session, JSON.stringify({...project,
+      native.luaCommand("start", session, JSON.stringify({...project, _store: storage,
         _debug: {breakpoints: callbacks.breakpoints, watches: callbacks.watches, step: callbacks.step}}));
     },
     reply, stop,
@@ -354,6 +415,47 @@ function renderLuaPreview(win) {
     observer.disconnect();
     for (const entry of timers.values()) clearInterval(entry.id);
   };
+}
+
+// Real in-launcher common dialog, not a browser prompt and not an Android
+// external activity. Enter/Escape and the titlebar close button are handled.
+function renderLuaCommonDialog(win) {
+  const spec = win.options.luaCommonDialog;
+  const layout = element("form", "lua-common-dialog");
+  layout.append(element("div", "lua-common-dialog-label", spec.message || spec.title));
+  let field = null;
+  if (spec.kind === "input" || spec.kind === "color") {
+    field = element("input", "text-entry");
+    field.type = spec.kind === "color" ? "color" : "text";
+    field.maxLength = 100;
+    field.value = spec.defaultValue || (spec.kind === "color" ? "#008080" : "");
+    field.setAttribute("aria-label", spec.kind === "color" ? "Select color" : "Enter value");
+    layout.append(field);
+  }
+  const actions = element("div", "lua-common-dialog-actions");
+  const finish = accepted => {
+    if (win.luaDialogResolved) return;
+    win.luaDialogResolved = true;
+    const value = accepted ? (field?.value || (spec.kind === "confirm" ? "OK" : "")) : "";
+    closeWindow(win.id);
+    win.options.onResult(accepted, value);
+  };
+  if (spec.kind !== "message") actions.append(toolbarButton("Cancel", () => finish(false)));
+  actions.append(toolbarButton("OK", () => finish(true)));
+  layout.append(actions);
+  layout.addEventListener("submit", event => { event.preventDefault(); finish(true); });
+  layout.addEventListener("keydown", event => {
+    if (event.key === "Escape") { event.preventDefault(); finish(false); }
+  });
+  win.beforeClose = () => {
+    if (!win.luaDialogResolved) {
+      win.luaDialogResolved = true;
+      win.options.onResult(false, "");
+    }
+    return true;
+  };
+  win.body.replaceChildren(layout);
+  field?.focus();
 }
 
 window.luaRuntimeEvent = result => activeLuaProjects.get(result.session)?.reply(result);

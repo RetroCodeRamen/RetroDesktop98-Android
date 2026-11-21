@@ -1,6 +1,6 @@
 # Lua Studio ↔ Visual Basic 6 — feature audit
 
-> **Audit baseline:** Retro Desktop 98 v2.7 source, 2026-11-21. **Phase 1 and Phase 2** below describe experimental code on the `feature/lua-studio-vb6-phase1` branch, not a released Android APK. **VB6-inspired** means similar workflow, **not** the Visual Basic 6 language or Windows binary compatibility.
+> **Audit baseline:** Retro Desktop 98 v2.7 source, 2026-11-21. **Phase 1, Phase 2 and Phase 3** below describe experimental code on the `feature/lua-studio-vb6-phase1` branch, not a released Android APK. **VB6-inspired** means similar workflow, **not** the Visual Basic 6 language or Windows binary compatibility.
 
 VB6 shipped a full IDE, programming language, Windows runtime, developer tools and COM/ActiveX ecosystem. Lua Studio currently uses sandboxed LuaJ, a HTML/CSS form renderer and a small JSON project model, so it cannot honestly be called “full VB6” until distinct layers are implemented and tested. No existing `.vbp`, `.frm`, `.bas`, `.cls`, `.ocx`, or compiled VB6 `.exe` is executed by this project.
 
@@ -34,18 +34,18 @@ VB6 shipped a full IDE, programming language, Windows runtime, developer tools a
 | Form-level pointer/key events | + | Background form pointer events and key events when form background has focus; not complete KeyPreview semantics. |
 | Event arguments | + | `event.key`, `event.code`, `event.x`, `event.y`, `event.button`, `event.shift`, `event.ctrl`, `event.alt`. Change handlers keep `value`. |
 | Standard intrinsic controls | ◐ | Label, CommandButton, text/multiline text, CheckBox, OptionButton, ComboBox, ListBox, Frame, H/V ScrollBar, Timer, Image, PictureBox, Shape, Line; missing DriveListBox, DirListBox, FileListBox, intrinsic Data control and OLE Container. |
-| Windows common controls (`MSCOMCTL.OCX`) | ◐ | ProgressBar present. Missing full TreeView, ListView, TabStrip/SSTab, toolbar, status bar, image list, slider and more. |
+| Windows common controls (`MSCOMCTL.OCX`) | + | Added functional TreeView (path indentation), ListView (list-style), TabStrip, Toolbar, and StatusBar along with item selection events. These are lightweight native launcher controls—not full MSCOMCTL.OCX or hierarchical/tree binding/owner draw. ImageList, rich columns, slider and others remain. |
 | Control arrays (shared name + Index) | + | Static array groups now use an optional `arrayName`/`arrayIndex` while retaining unique internal control IDs; indexed `ui.getAt`/`ui.setAt` and `ArrayName_Click(index,event)` handlers. Runtime dynamic Load/Unload not supported. |
 | Dynamic controls / Load/Unload | — | Designer produces static controls; runtime cannot add controls dynamically. |
 | MDI parent/child | — | Runtime supports **multiple separate forms**, not an MDI parent workspace. |
 | Form modal/modeless display | + | `ui.showModal(form)` disables other forms in the same Lua session, allows nested dialogs, and restores input after dismissal. It is asynchronous, unlike VB6 blocking `Show vbModal`. |
-| Common Dialog / MsgBox / InputBox | ◐ | `ui.message` sends a message to the preview/log. No blocking return or desktop file/color/font dialog API. |
+| Common Dialog / MsgBox / InputBox | + | `ui.dialog(kind,title,message,default)` shows message, confirm, input and color dialogs inside the launcher, returning asynchronously via `Form_DialogResult(event)`. Not VB6 synchronous `MsgBox`; file/font dialogs are still absent. |
 | Class modules / interfaces / WithEvents | — | Shared modules exist; no class/module object model or typed event declarations. |
-| File I/O | — | Project persistence is handled by the IDE; scripts have no sandboxed file API. |
+| File I/O | — | Scripts still have **no disk access**. A new bounded `store.get/set/remove` key-value API persists simple settings for published programs only; it is not general file I/O. |
 | Networking and database controls | — | No ADO/DAO/RDO, Winsock/Inet, or bound data controls inside scripts. |
 | Package/reference manager | — | No external Lua module manager or user-defined controls. |
 | Resource editor & image lists | ◐ | Embedded JPEG project images; no icons/string tables/version information or resource editor. |
-| Project templates / wizard / add-ins | ◐ | Counter, Hello Form, Two-Form Project; now Event Playground; no plugin API. |
+| Project templates / wizard / add-ins | + | Existing examples plus Control Arrays, Modal Dialog, Common Controls and Common Dialogs. No plugin or add-in API. |
 | Export published app | ✓ | Save project / ZIP and publish a Lua app under Start → Lua Programs. |
 | Compile native Win32 EXE / DLL / OCX | N/A | Android launcher hosts Lua inside its sandbox. Windows VB6 binaries and COM are not supported. |
 | Windows API calls / Declare / OLE automation | N/A | Deliberately not exposed to untrusted Lua; would compromise Android app isolation. |
@@ -87,6 +87,18 @@ VB6 shipped a full IDE, programming language, Windows runtime, developer tools a
 - Class modules, component contracts and importable Lua packages with controlled capabilities.
 - Data binding through an **Android-local SQLite abstraction** rather than Windows ADO/DAO or an untrusted `java` bridge.
 - Build/export pipeline for shareable launcher-native Lua project packages and automated tests.
+
+### Phase 3 — Common controls, asynchronous dialogs and app settings (+ on this branch)
+
+- [x] TreeView, ListView, TabStrip, Toolbar, StatusBar in designer and runtime preview, with item selection and bound Change events.
+- [x] `ui.getItems`/`ui.setItems` for bounded, dynamic item lists; retain the existing v2 project schema and old controls.
+- [x] `ui.dialog` for message, confirmation, text input, and color selection, with `Form_DialogResult(event)` for asynchronous response.
+- [x] `store.get/set/remove` for per-published-program settings with 32 keys and 256 characters per value. Studio preview storage is temporary. This is **not** file system access.
+- [x] Node compatibility tests, Chromium control-render smoke test, dialog event queue and persistence simulations.
+- [ ] Android compilation and real-device dialog/touch/input checks before merging or releasing.
+- [ ] Implement workspace-scoped file I/O, native file/font dialogs, richer ListView columns and hierarchical TreeView nodes.
+
+See [Phase 3 guide](LUA_STUDIO_PHASE3.md) for the actual Lua APIs and examples.
 
 ### Windows compatibility boundary
 

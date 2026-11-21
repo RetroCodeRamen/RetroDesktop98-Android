@@ -21,21 +21,27 @@ const luaControlTypes = {
   shape: {caption: "Shape", prefix: "Shape", width: 74, height: 48},
   line: {caption: "Line", prefix: "Line", width: 85, height: 20},
   image: {caption: "Image", prefix: "Image", width: 112, height: 72},
-  picture: {caption: "PictureBox", prefix: "Picture", width: 128, height: 80}
+  picture: {caption: "PictureBox", prefix: "Picture", width: 128, height: 80},
+  treeview: {caption: "TreeView", prefix: "Tree", width: 164, height: 118, event: "Change"},
+  listview: {caption: "ListView", prefix: "ListView", width: 164, height: 110, event: "Change"},
+  tabstrip: {caption: "TabStrip", prefix: "TabStrip", width: 180, height: 35, event: "Change"},
+  toolbar: {caption: "Toolbar", prefix: "Toolbar", width: 196, height: 34, event: "Change"},
+  statusbar: {caption: "StatusBar", prefix: "StatusBar", width: 200, height: 27}
 };
 const luaRangeTypes = ["hscroll", "vscroll", "progress"];
-const luaChoiceTypes = ["list", "combo"];
+const luaChoiceTypes = ["list", "combo", "treeview", "listview", "tabstrip", "toolbar"];
 const luaImageTypes = ["image", "picture"];
 const luaTickTypes = ["check", "option"];
 const luaTextTypes = ["text", "multiline"];
 
 // VB6's Object and Procedure dropdowns are separate. Events remain Lua handlers.
 // The first event for each control is its default double-click designer action.
-const luaFormEvents = ["Load", "Activate", "Unload", "Click", "DblClick", "MouseDown", "MouseUp", "KeyDown", "KeyUp"];
+const luaFormEvents = ["Load", "Activate", "Unload", "Click", "DblClick", "MouseDown", "MouseUp", "KeyDown", "KeyUp", "DialogResult"];
 const luaPointerEvents = ["Click", "DblClick", "MouseDown", "MouseUp"];
 const luaFocusEvents = ["GotFocus", "LostFocus", "KeyDown", "KeyUp"];
 function luaEventsForType(type) {
   if (type === "timer") return ["Timer"];
+  if (type === "statusbar") return luaPointerEvents;
   if (type === "button") return ["Click", "DblClick", ...luaFocusEvents, "MouseDown", "MouseUp"];
   if (luaTextTypes.includes(type) || luaChoiceTypes.includes(type) || luaTickTypes.includes(type) ||
       type === "hscroll" || type === "vscroll") {
@@ -237,4 +243,52 @@ function luaModalExample() {
   dialog.code = 'function Done_Click()\n  ui.hide()\nend\n';
   return {format: luaProjectFormat, version: 2, name: "Modal Dialog", startup: "MainForm",
     forms: [main, dialog], modules: []};
+}
+
+
+// Sample built entirely with the existing v2 project format. No migration is
+// needed when a user opens a saved project from earlier releases.
+function luaCommonControlsExample() {
+  const form = luaNewForm("MainForm");
+  form.caption = "Common Controls";
+  form.width = 355;
+  form.height = 330;
+  const tree = luaControl("treeview", "Tree1", "Folders", 10, 12, 163, 145);
+  tree.items = ["Projects", "Projects/Lua Studio", "Projects/DOSBox", "Documents", "Documents/Notes"];
+  tree.value = tree.items[0];
+  const list = luaControl("listview", "Files1", "Files", 183, 12, 158, 145);
+  list.items = ["README.md", "main.lua", "settings.json"];
+  list.value = list.items[0];
+  const tabs = luaControl("tabstrip", "Tabs1", "Tabs", 10, 172, 330, 38);
+  tabs.items = ["General", "Advanced", "About"];
+  tabs.value = tabs.items[0];
+  const toolbar = luaControl("toolbar", "Actions1", "Actions", 10, 223, 330, 38);
+  toolbar.items = ["New", "Open", "Save"];
+  toolbar.value = toolbar.items[0];
+  const status = luaControl("statusbar", "Status1", "Ready", 10, 280, 330, 26);
+  form.controls.push(tree, list, tabs, toolbar, status);
+  form.code = 'function Tree1_Change(value)\n  ui.set("Status1", "text", "Folder: " .. value)\nend\n\n' +
+    'function Files1_Change(value)\n  ui.set("Status1", "text", "File: " .. value)\nend\n\n' +
+    'function Tabs1_Change(value)\n  ui.set("Status1", "text", "Tab: " .. value)\nend\n\n' +
+    'function Actions1_Change(value)\n  ui.set("Status1", "text", "Toolbar: " .. value)\nend\n';
+  return {format: luaProjectFormat, version: 2, name: "Common Controls", startup: "MainForm",
+    forms: [form], modules: []};
+}
+
+function luaDialogsExample() {
+  const form = luaNewForm("MainForm");
+  form.caption = "Common Dialogs";
+  form.height = 240;
+  form.controls.push(luaControl("button", "Ask1", "Input Box", 12, 14, 131, 34));
+  form.controls.push(luaControl("button", "Confirm1", "Confirm", 153, 14, 130, 34));
+  form.controls.push(luaControl("button", "Color1", "Choose Color", 12, 63, 131, 34));
+  form.controls.push(luaControl("button", "Alert1", "Message Box", 153, 63, 130, 34));
+  form.controls.push(luaControl("label", "Result1", "Awaiting response", 12, 125, 269, 80));
+  form.code = 'function Ask1_Click()\n  ui.dialog("input", "Your Name", "What should I call you?", "Ada")\nend\n\n' +
+    'function Confirm1_Click()\n  ui.dialog("confirm", "Confirm Action", "Save the changes?")\nend\n\n' +
+    'function Color1_Click()\n  ui.dialog("color", "Pick a Color", "Choose a background color", "#008080")\nend\n\n' +
+    'function Alert1_Click()\n  ui.dialog("message", "Hello", "This is a Windows 98-style dialog.")\nend\n\n' +
+    'function Form_DialogResult(event)\n  if event.accepted then\n    ui.set("Result1", "text", event.kind .. ": " .. event.value)\n  else\n    ui.set("Result1", "text", "Canceled: " .. event.kind)\n  end\nend\n';
+  return {format: luaProjectFormat, version: 2, name: "Common Dialogs", startup: "MainForm",
+    forms: [form], modules: []};
 }

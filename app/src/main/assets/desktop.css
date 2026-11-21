@@ -886,3 +886,15 @@ img { flex: 0 0 auto; user-select: none; vertical-align: middle; pointer-events:
   flex: 1 1 0; min-width: 50px; max-width: none; font-size: 12px;
 }
 .lua-shell[data-density="compact"] .lua-code-actions .tool-button { flex: 0 0 auto; white-space: nowrap; }
+
+/* Lua Studio Phase 3: the five classic Common Controls stay touchable. */
+.lua-list-control.lua-treeview, .lua-list-control.lua-listview { height: 100%; width: 100%; font-size: 12px; }
+.lua-common-strip { box-sizing: border-box; width: 100%; height: 100%; display: flex; gap: 2px; align-items: stretch; overflow-x: auto; overflow-y: hidden; padding: 2px; background: #d4d0c8; }
+.lua-common-strip.lua-tabstrip { align-items: flex-end; }
+.lua-common-strip .lua-common-item { flex: 0 0 auto; padding: 3px 8px; white-space: nowrap; font-size: 12px; min-width: 40px; touch-action: manipulation; }
+.lua-common-strip .lua-common-item[aria-pressed="true"] { background: #fff; box-shadow: inset 1px 1px #fff, inset -1px -1px #777; font-weight: bold; }
+.lua-statusbar-control { box-sizing: border-box; display: flex; align-items: center; width: 100%; height: 100%; padding: 3px 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; border: 1px solid; border-color: #777 #fff #fff #777; background: #d4d0c8; color: #111; font: 12px Arial, sans-serif; }
+.lua-common-dialog { display: flex; flex-direction: column; gap: 8px; padding: 12px; font: 13px Arial, sans-serif; }
+.lua-common-dialog-label { display: block; line-height: 1.35; overflow-wrap: anywhere; }
+.lua-common-dialog .text-entry { min-height: 27px; width: 100%; box-sizing: border-box; }
+.lua-common-dialog-actions { display: flex; justify-content: flex-end; gap: 7px; flex-wrap: wrap; margin-top: auto; }
