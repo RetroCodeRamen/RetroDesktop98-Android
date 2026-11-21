@@ -47,7 +47,7 @@ sed 's/<manifest /<manifest package="com.retrodesktop.launcher.resizable" /' "$m
 "$tools/aapt2" compile --dir "$main/res" -o "$temp/resources.zip"
 "$tools/aapt2" link -o "$temp/unsigned.apk" -I "$platform" \
   --manifest "$temp/AndroidManifest.xml" --min-sdk-version 26 --target-sdk-version 35 \
-  --version-code 23 --version-name 2.9-dos-deluxe-dev -A "$main/assets" "$temp/resources.zip"
+  --version-code 24 --version-name 2.9.1-dos-controls -A "$main/assets" "$temp/resources.zip"
 
 mapfile -d '' sources < <(find "$main/java" -name '*.java' -print0)
 "${JAVAC:-javac}" -encoding UTF-8 -source 8 -target 8 -classpath "$classpath" -d "$temp/classes" "${sources[@]}"

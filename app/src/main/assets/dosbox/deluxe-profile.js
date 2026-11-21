@@ -11,20 +11,31 @@
     "0":48, "1":49, "2":50, "3":51, "4":52, "5":53,
     "6":54, "7":55, "8":56, "9":57, MouseLeft:-1, MouseRight:-2
   });
+  // v2 ergonomic presets: clusters near the sides, and below the DOS image
+  // whenever portrait has unused space. Coordinates are viewport percentages.
   const POSITIONS = Object.freeze({
+    up:[16,77],left:[8,83],down:[16,89],right:[24,83],
+    a:[80,82],b:[91,76],shift:[68,89],start:[52,95],esc:[8,9]
+  });
+  const LANDSCAPE_POSITIONS = Object.freeze({
+    up:[12,70],left:[8,80],down:[12,90],right:[16,80],
+    a:[85,80],b:[92,70],shift:[78,90],start:[52,92],esc:[6,8]
+  });
+  const LEGACY_POSITIONS = Object.freeze({
     up:[15,65],left:[6,76],down:[15,86],right:[24,76],
     a:[80,75],b:[91,65],start:[52,87],esc:[52,11]
   });
-  const DEFAULT_TOUCH = Object.freeze({up:265,left:263,down:264,right:262,a:341,b:342,start:257,esc:256});
+  const DEFAULT_TOUCH = Object.freeze({up:265,left:263,down:264,right:262,a:341,b:342,shift:340,start:257,esc:256});
   const DEFAULT_GAMEPAD = Object.freeze({0:341,1:342,2:32,3:257,4:290,5:294,8:256,9:257,12:265,13:264,14:263,15:262});
   const ALLOWED = new Set(Object.values(KEYS));
   const clamp = (v,min,max,fallback) => Number.isFinite(Number(v)) ? Math.min(max,Math.max(min,Number(v))) : fallback;
   const key = (value,fallback) => ALLOWED.has(Number(value)) ? Number(value) : fallback;
   function defaults() {
-    return {orientation:"auto",screen:"fit",cycles:"auto",sb:"sb16",irq:7,
-      touchVisible:true,touchSize:54,touchOpacity:76,deadzone:0.45,
-      touch:{...DEFAULT_TOUCH},gamepad:{...DEFAULT_GAMEPAD},positions:Object.fromEntries(
-        Object.entries(POSITIONS).map(([k,v])=>[k,[...v]]))};
+    return {layoutVersion:2,orientation:"auto",screen:"fit",cycles:"auto",sb:"sb16",irq:7,
+      touchVisible:true,touchSize:60,touchOpacity:70,deadzone:0.45,
+      touch:{...DEFAULT_TOUCH},gamepad:{...DEFAULT_GAMEPAD},
+      positions:Object.fromEntries(Object.entries(POSITIONS).map(([k,v])=>[k,[...v]])),
+      positionsLandscape:Object.fromEntries(Object.entries(LANDSCAPE_POSITIONS).map(([k,v])=>[k,[...v]]))};
   }
   function normalize(source) {
     const d=defaults();
@@ -38,15 +49,32 @@
     d.touchSize=clamp(source.touchSize,36,86,d.touchSize);
     d.touchOpacity=clamp(source.touchOpacity,30,100,d.touchOpacity);
     d.deadzone=clamp(source.deadzone,0.25,0.85,d.deadzone);
+    const modern=source.layoutVersion===2;
     for(const name of Object.keys(d.touch)) {
       d.touch[name]=key(source.touch?.[name],d.touch[name]);
-      const pos=source.positions?.[name];
-      if(Array.isArray(pos)&&pos.length===2) {
-        d.positions[name]=[clamp(pos[0],3,97,d.positions[name][0]),clamp(pos[1],6,94,d.positions[name][1])];
+      // Preserve hand-edited positions from v1 but migrate untouched default
+      // positions to the new ergonomic design. Mappings always survive.
+      const old=source.positions?.[name];
+      const previouslyDefault=Array.isArray(old)&&LEGACY_POSITIONS[name]&&
+        old.length===2&&Number(old[0])===LEGACY_POSITIONS[name][0]&&Number(old[1])===LEGACY_POSITIONS[name][1];
+      if(Array.isArray(old)&&old.length===2&&(modern||!previouslyDefault)) {
+        d.positions[name]=[clamp(old[0],3,97,d.positions[name][0]),clamp(old[1],6,97,d.positions[name][1])];
+      }
+      const wide=source.positionsLandscape?.[name];
+      if(modern&&Array.isArray(wide)&&wide.length===2) {
+        d.positionsLandscape[name]=[clamp(wide[0],3,97,d.positionsLandscape[name][0]),
+          clamp(wide[1],6,97,d.positionsLandscape[name][1])];
       }
     }
     for(const index of Object.keys(d.gamepad)) d.gamepad[index]=key(source.gamepad?.[index],d.gamepad[index]);
     return d;
+  }
+  function positions(profile,landscape) {
+    return landscape ? profile.positionsLandscape : profile.positions;
+  }
+  function resetPositions(profile) {
+    const fresh=defaults();
+    return {...profile,positions:fresh.positions,positionsLandscape:fresh.positionsLandscape,layoutVersion:2};
   }
   function option(conf,section,setting,value) {
     const lines=String(conf||"").replace(/\r\n/g,"\n").split("\n");
@@ -72,7 +100,7 @@
     conf=option(conf,"sblaster","irq",p.irq);
     return conf;
   }
-  const api=Object.freeze({KEYS,POSITIONS,DEFAULT_TOUCH,DEFAULT_GAMEPAD,defaults,normalize,configure});
+  const api=Object.freeze({KEYS,POSITIONS,LANDSCAPE_POSITIONS,DEFAULT_TOUCH,DEFAULT_GAMEPAD,defaults,normalize,positions,resetPositions,configure});
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
   if(root) root.RetroDosProfile=api;
 })(typeof window!=="undefined"?window:null);

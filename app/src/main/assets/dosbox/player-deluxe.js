@@ -6,7 +6,7 @@
   const overlay = document.getElementById("deluxe-touch");
   const settings = document.getElementById("deluxe-settings");
   const gamepadStatus = document.getElementById("gamepad-state");
-  const touchIds = ["up","left","down","right","a","b","start","esc"];
+  const touchIds = ["up","left","down","right","a","b","shift","start","esc"];
   const selectKeys = Object.entries(model.KEYS).map(([title, code]) => [title, code]);
   let profile = model.defaults();
   let identity = "demo-v1", fullscreen = false, editLayout = false, settingsOpen = false, connectedPad = "";
@@ -49,6 +49,9 @@
     });
   }
   document.getElementById("deluxe-reset").addEventListener("click", () => { profile=model.defaults(); store();showProfile(); });
+  document.getElementById("layout-reset").addEventListener("click", () => {
+    profile=model.resetPositions(profile);store();showProfile();
+  });
   document.getElementById("deluxe-touch-visible").addEventListener("change", e => {
     profile.touchVisible=e.target.checked;store();showProfile();
   });
@@ -62,12 +65,19 @@
     overlay.hidden=!fullscreen||!profile.touchVisible;
     base.classList.toggle("stretch-screen",profile.screen==="stretch");
     document.getElementById("layout-edit").setAttribute("aria-pressed",String(editLayout));
+    const landscape=window.innerWidth>window.innerHeight;
+    const positions=model.positions(profile,landscape);
     for(const id of touchIds){
       const item=overlay.querySelector(`[data-touch="${id}"]`);
-      const [x,y]=profile.positions[id];
+      const [x,y]=positions[id];
       item.style.left=x+"%"; item.style.top=y+"%";
-      if(!["up","down","left","right"].includes(id)) item.textContent=id.toUpperCase()+" · "+keyLabel(profile.touch[id]);
+      if(!["up","down","left","right"].includes(id)) {
+        const action=id==="shift"?"SHIFT":id.toUpperCase();
+        item.textContent=action;
+        item.setAttribute("aria-label",action+" mapped to "+keyLabel(profile.touch[id]));
+      }
     }
+    layoutGameScreen();
     if(settingsOpen) document.getElementById("settings-restart-hint").textContent="CPU and Sound Blaster changes apply next time this game is opened.";
   }
   function openSettings(open) {
@@ -93,6 +103,20 @@
     editLayout=false; overlay.classList.remove("editing");
     document.getElementById("layout-edit-full").hidden=true;store();showProfile();
   });
+  // Unlike object-fit:contain in a full-height canvas, size the canvas itself
+  // to the DOS image. This keeps the picture anchored at the TOP in portrait.
+  function layoutGameScreen() {
+    if(!fullscreen){canvas.style.width="";canvas.style.height="";return;}
+    const rect=base.getBoundingClientRect();
+    if(rect.width<=0||rect.height<=0||!canvas.width||!canvas.height)return;
+    const scale=Math.min(rect.width/canvas.width,rect.height/canvas.height);
+    canvas.style.width=Math.max(1,Math.floor(canvas.width*scale))+"px";
+    canvas.style.height=Math.max(1,Math.floor(canvas.height*scale))+"px";
+  }
+  window.dosboxFrameSizeChanged=layoutGameScreen;
+  const resizeGame = () => {layoutGameScreen();showProfile();};
+  window.addEventListener("resize",resizeGame);
+  if(typeof ResizeObserver!=="undefined") new ResizeObserver(layoutGameScreen).observe(base);
   function updateFullscreen(enabled) {
     fullscreen=Boolean(enabled);
     document.body.classList.toggle("dos-fullscreen",fullscreen);
@@ -133,9 +157,11 @@
     button.addEventListener("pointermove",event=>{
       if(!editLayout||button.dataset.drag!==String(event.pointerId))return;
       const box=overlay.getBoundingClientRect();
-      profile.positions[id]=[
+      const landscape=window.innerWidth>window.innerHeight;
+      const positions=model.positions(profile,landscape);
+      positions[id]=[
         Math.round(Math.max(3,Math.min(97,((event.clientX-box.left)/box.width)*100))),
-        Math.round(Math.max(6,Math.min(94,((event.clientY-box.top)/box.height)*100)))
+        Math.round(Math.max(6,Math.min(97,((event.clientY-box.top)/box.height)*100)))
       ];
       showProfile();
     });

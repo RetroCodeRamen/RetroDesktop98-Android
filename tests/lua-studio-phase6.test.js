@@ -19,7 +19,7 @@ const gradle = fs.readFileSync(path.join(__dirname, "../app/build.gradle"), "utf
 assert.match(gradle, /applicationId 'com\.retrodesktop\.launcher\.resizable'/);
 assert.match(build, /package="com\.retrodesktop\.launcher\.resizable"/);
 assert.doesNotMatch(manifest, /resizable\.beta/);
-assert.match(gradle, /versionName '2\.9-dos-deluxe-dev'/);
+assert.match(gradle, /versionName '2\.9\.1-dos-controls'/);
 
 // Calls to SQLite must cross the isolated process boundary. No direct SQL,
 // Java reflection, or filesystem APIs are exposed to Lua source code.
@@ -65,7 +65,7 @@ const demo=JSON.parse(JSON.stringify(evalJs("luaDatabaseExample()")));
 assert.equal(demo.name,"SQLite Address Book");
 assert.ok(demo.forms[0].controls.some(c=>c.type==="listview"));
 assert.match(demo.forms[0].code, /db\.exec\("INSERT INTO contacts\(name\) VALUES \(\?\)", name\)/);
-assert.match(demo.forms[0].code, /ui\.setItems\("Contacts",\s*event\.text\)/);
+assert.match(demo.forms[0].code, /ui\.setItems\("Contacts", event\.text\)/);
 assert.ok(evalJs('luaFormEvents.includes("DatabaseResult")'));
 ctx.project=demo;
 ctx.callbacks={};

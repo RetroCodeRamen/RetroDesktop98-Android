@@ -311,6 +311,7 @@ function frameSize(width, height) {
   if (width < 1 || height < 1 || width > 1920 || height > 1200) return;
   canvas.width = width; canvas.height = height;
   picture = painter.createImageData(width, height);
+  window.dosboxFrameSizeChanged?.();
 }
 
 function monitor(rgb, rgba) {

@@ -47,3 +47,14 @@ These are examples, not built-in presets. Actual control keys vary by game and g
 - Testing on actual Android phones and physical Bluetooth/USB controllers.
 
 **Release note:** This build uses a new development signing key. Android generally cannot update your currently signed installation in place. If your old launcher is disposable, uninstall it and install the new APK. Back up the workspace first if anything changed since your last decision to wipe it.
+
+## v2.9.1 — ergonomic controls and top-aligned fullscreen display
+
+- A dedicated **Shift** key is available both in windowed play and on the fullscreen touch overlay. Hold Shift and a direction or action together to send simultaneous key-down events (useful for Jill of the Jungle).
+- The regular window uses a full four-way, three-row diamond D-pad with a separate, highlighted Shift key; fullscreen action keys use compact labels and their current mappings remain available in Game Settings.
+- Fullscreen **DOS video is aligned to the top** of the display instead of letterboxing vertically in the center. The display preserves the original aspect ratio under Fit and resizes when DOS changes video mode or the phone rotates.
+- Touch button positions have distinct portrait and landscape presets. The D-pad is at the left; A/B/Shift are at the right; Esc is at the top left to avoid colliding with the compact Desktop/Setup toolbar.
+- **Game Settings → Reset Touch Positions** restores both orientation layouts without deleting the game's key mappings or sound settings. Existing manually customized portrait positions are preserved during migration; untouched v2.9 defaults migrate to the improved layout.
+- Fullscreen touch controls remain movable per game. Settings persist per DOS game package; the existing gamepad mappings and CPU/audio profiles are unchanged.
+
+The Android release remains development-signed: if your previous APK used another signing certificate, uninstall that app before installing this build. This version has not been physically tested with Jill of the Jungle or a Bluetooth gamepad. Node and browser smoke tests verify simultaneous Shift/Right key presses and the canvas bounding box at the top of portrait and landscape viewports.

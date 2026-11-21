@@ -43,6 +43,28 @@ window.RetroDosBox={fullscreen:x=>{window._fullscreen=x;},orientation:x=>{window
     assert page.locator('#fullscreen-bar').is_hidden()
     page.locator('#fullscreen-toggle').click()
     assert page.locator('body').evaluate('(el)=>el.classList.contains("dos-fullscreen")')
+    # Portrait: game pixels must start at the top of the viewport, not float in its center.
+    geom=page.evaluate('''() => ({game:document.querySelector('#screen').getBoundingClientRect().toJSON(),
+      picture:document.querySelector('#picture').getBoundingClientRect().toJSON()})''')
+    assert abs(geom['game']['top'] - geom['picture']['top'])<2, geom
+    assert 300<geom['game']['height']<600,geom
+    assert page.locator('[data-touch="shift"]').is_visible()
+    # Simultaneous, momentary Shift + movement input (Jill's special action).
+    page.evaluate('''() => {window._keys=[];
+      for(const [id,pointerId] of [['shift',21],['right',22]]) {
+        const el=document.querySelector(`[data-touch="${id}"]`);
+        el.setPointerCapture=()=>{};
+        el.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId}));
+      }
+      for(const [id,pointerId] of [['right',22],['shift',21]]) {
+        const el=document.querySelector(`[data-touch="${id}"]`);
+        el.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerId}));
+      }
+    }''')
+    assert [340,True] in page.evaluate('window._keys')
+    assert [262,True] in page.evaluate('window._keys')
+    assert [340,False] in page.evaluate('window._keys')
+    assert [262,False] in page.evaluate('window._keys')
     assert page.locator('#fullscreen-bar').is_visible()
     assert page.locator('#deluxe-touch').is_visible()
     page.locator('#fullscreen-settings').click()
@@ -77,6 +99,15 @@ window.RetroDosBox={fullscreen:x=>{window._fullscreen=x;},orientation:x=>{window
     assert page.locator('#deluxe-touch').evaluate('(e)=>e.classList.contains("editing")')
     page.locator('#layout-edit-full').click()
     assert not page.locator('#deluxe-touch').evaluate('(e)=>e.classList.contains("editing")')
+    page.set_viewport_size({'width':1250,'height':720})
+    page.wait_for_timeout(150)
+    wide=page.evaluate('''() => ({game:document.querySelector('#screen').getBoundingClientRect().toJSON(),
+      picture:document.querySelector('#picture').getBoundingClientRect().toJSON(),
+      shift:document.querySelector('[data-touch="shift"]').getBoundingClientRect().toJSON(),
+      up:document.querySelector('[data-touch="up"]').getBoundingClientRect().toJSON()})''')
+    assert abs(wide['game']['top']-wide['picture']['top'])<2,wide
+    assert wide['up']['left']<wide['game']['width']/2 and wide['shift']['left']>wide['game']['width']/2,wide
+    page.screenshot(path=str(Path(__file__).parents[1]/'docs/dosbox-291-landscape-smoke.png'))
     page.locator('#fullscreen-exit').click()
     assert not page.locator('body').evaluate('(e)=>e.classList.contains("dos-fullscreen")')
     page.screenshot(path=str(Path(__file__).parents[1]/'docs/dosbox-deluxe-browser-smoke.png'))

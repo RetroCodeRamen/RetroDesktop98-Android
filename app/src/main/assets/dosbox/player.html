@@ -15,6 +15,7 @@
 <button data-touch="down" type="button" aria-label="Down">▼</button>
 <button data-touch="right" type="button" aria-label="Right">▶</button>
 <button data-touch="a" type="button">A</button><button data-touch="b" type="button">B</button>
+<button data-touch="shift" type="button" aria-label="Hold Shift">SHIFT</button>
 <button data-touch="start" type="button">START</button><button data-touch="esc" type="button">ESC</button>
 </div>
 <button id="layout-edit-full" type="button" hidden>Done Moving Controls</button>
@@ -35,7 +36,7 @@
 <h3>Touch button mapping</h3><div id="deluxe-mapping" class="settings-grid"></div>
 <h3>Bluetooth / USB gamepad mapping</h3><div id="deluxe-padmap" class="settings-grid"></div>
 <p id="settings-restart-hint" class="hint"></p>
-<div class="settings-actions"><button id="layout-edit" type="button">Move Touch Buttons</button><button id="deluxe-reset" type="button">Reset Game Profile</button></div>
+<div class="settings-actions"><button id="layout-edit" type="button">Move Touch Buttons</button><button id="layout-reset" type="button">Reset Touch Positions</button><button id="deluxe-reset" type="button">Reset Game Profile</button></div>
 </div>
 <div id="controls">
 <div id="keys" aria-label="Touch controls">
@@ -46,8 +47,9 @@
   <button data-key="262" class="right" aria-label="Right">▶</button>
 </div>
 <div id="extra-keys">
-<button data-key="341" aria-label="Control">Ctrl</button><button data-key="342">Alt</button><button data-key="32">Space</button>
-<button data-key="257">Enter</button><button data-key="256">Esc</button>
+<button data-key="340" class="modifier-shift" aria-label="Hold Shift">Shift</button>
+<button data-key="341" aria-label="Control">Ctrl</button><button data-key="342" aria-label="Alt">Alt</button>
+<button data-key="32" aria-label="Space">Space</button><button data-key="257">Enter</button><button data-key="256">Esc</button>
 <button data-key="290">F1</button><button data-key="294">F5</button>
 <button id="right-click" type="button" aria-pressed="false">Right Click</button>
 </div>
