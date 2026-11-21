@@ -110,8 +110,9 @@
     const rect=base.getBoundingClientRect();
     if(rect.width<=0||rect.height<=0||!canvas.width||!canvas.height)return;
     const scale=Math.min(rect.width/canvas.width,rect.height/canvas.height);
-    canvas.style.width=Math.max(1,Math.floor(canvas.width*scale))+"px";
-    canvas.style.height=Math.max(1,Math.floor(canvas.height*scale))+"px";
+    const stretch=profile.screen==="stretch";
+    canvas.style.width=Math.max(1,Math.floor(stretch?rect.width:canvas.width*scale))+"px";
+    canvas.style.height=Math.max(1,Math.floor(stretch?rect.height:canvas.height*scale))+"px";
   }
   window.dosboxFrameSizeChanged=layoutGameScreen;
   const resizeGame = () => {layoutGameScreen();showProfile();};
