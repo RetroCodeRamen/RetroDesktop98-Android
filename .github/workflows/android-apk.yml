@@ -2,7 +2,7 @@ name: Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'testing/lua-studio-2.8-rc']
     tags: ['v*']
   pull_request:
     branches: [main]

@@ -45,6 +45,50 @@ function luaExample(example = "counter") {
   return base;
 }
 
+// Database-backed demo, usable in Studio Run and as a published app.
+function luaDatabaseExample() {
+  const form = luaNewForm("MainForm");
+  form.caption = "SQLite Address Book";
+  form.width = 330; form.height = 260;
+  form.controls = [
+    luaControl("label","NameLabel","Name",12,14,85,22),
+    luaControl("text","NameInput","",92,10,215,30),
+    luaControl("button","AddButton","Add contact",12,49,140,32),
+    luaControl("button","RefreshButton","Refresh",163,49,144,32),
+    luaControl("listview","Contacts","",12,90,295,123),
+    luaControl("statusbar","Status","Ready",12,225,295,26)
+  ];
+  form.controls[4].columns=["Contact"];
+  form.code=[
+    'function Form_Load()',
+    '  db.exec("CREATE TABLE IF NOT EXISTS contacts (name TEXT NOT NULL)")',
+    'end',
+    'function AddButton_Click()',
+    '  local name = ui.get("NameInput", "text")',
+    '  if name == "" then ui.message("Enter a name first."); return end',
+    '  db.exec("INSERT INTO contacts(name) VALUES (?)", name)',
+    'end',
+    'function RefreshButton_Click()',
+    '  db.query("SELECT name FROM contacts ORDER BY name LIMIT 24")',
+    'end',
+    'function Form_DatabaseResult(event)',
+    '  if not event.ok then',
+    '    ui.set("Status", "text", "DB error: " .. event.error)',
+    '    return',
+    '  end',
+    '  if event.action == "exec" then',
+    '    db.query("SELECT name FROM contacts ORDER BY name LIMIT 24")',
+    '  elseif event.action == "query" then',
+    '    ui.setColumns("Contacts", event.columns)',
+    '    ui.setItems("Contacts", event.text)',
+    '    ui.set("Status", "text", "Contacts: " .. event.count)',
+    '  end',
+    'end'
+  ].join("\n");
+  return luaProject({format:luaProjectFormat,version:2,name:"SQLite Address Book",
+    startup:"MainForm",forms:[form],modules:[],meta:{version:"1.0.0",description:"Local SQLite contacts demo"}});
+}
+
 function loadLuaProject() {
   try {
     return luaProject(JSON.parse(native?.loadLuaProject?.() || localStorage.getItem("retro98-lua-project") || "null"));
@@ -1532,7 +1576,8 @@ function renderLuaStudio(win) {
     ["Common Controls", "lua", () => switchProject(luaCommonControlsExample())],
     ["Common Dialogs", "lua", () => switchProject(luaDialogsExample())],
     ["Pocket Notepad (Files)", "lua", () => switchProject(luaFilesExample())],
-    ["Reusable Class Demo", "lua", () => switchProject(luaClassExample())]
+    ["Reusable Class Demo", "lua", () => switchProject(luaClassExample())],
+    ["SQLite Address Book", "lua", () => switchProject(luaDatabaseExample())]
   ]);
   const sourceTools = windowMenu("Source", [
     ["Complete Symbol…", "", () => { setPane("code"); showCompletion(); }],
@@ -1864,7 +1909,8 @@ function showLuaHelp() {
       "TreeView, ListView, TabStrip and Toolbar use an Items list and Value selection; StatusBar uses Text. " +
       "Use ui.setItems(name, newlineSeparatedItems) to replace selectable options. " +
       "Use files.read(name), files.write(name,text), files.list(), files.remove(name); " +
-      "handle Form_FileResult(event) for asynchronous results. " +
+      "handle Form_FileResult(event) for asynchronous results. db.exec(sql, …) and db.query(sql, …) " +
+      "use SQLite with bound parameters; handle Form_DatabaseResult(event). " +
       "ListView supports up to four tab-separated column headings via ui.setColumns. " +
       "ui.dialog(kind, title, message, defaultValue) opens a nonblocking message, confirm, input or color dialog. " +
       "Handle Form_DialogResult(event) with event.id, event.kind, event.accepted and event.value. " +
@@ -1901,6 +1947,9 @@ function showLuaBrowser(studio) {
     ["ui.getItems(name, form)", "Return newline-separated items for a ListBox, ComboBox, TreeView, ListView, TabStrip or Toolbar."],
     ["files.read(name), files.write(name, text)", "Private .txt/.csv/.json files (16 KiB max). Reply arrives in Form_FileResult(event)."],
     ["files.list(), files.remove(name)", "List or remove files in the app namespace. Preview storage is temporary."],
+    ["db.exec(sql, ...params)", "Create tables or insert/update/delete using bound ? parameters; handle Form_DatabaseResult(event)."],
+    ["db.query(sql, ...params)", "SELECT returns at most 24 rows/four columns in tab/newline-separated text."],
+    ["Form_DatabaseResult(event)", "Asynchronous SQLite fields: id, action, ok, text, columns, count, error."],
     ["ui.getColumns(name), ui.setColumns(name, headers)", "ListView column headings, separated by tabs; at most four."],
     ["ui.setItems(name, text, form)", "Replace a selectable control's items with newline-separated names (up to 24)."],
     ["store.get(key), store.set(key, value), store.remove(key)", "Per-program small string settings store. Persisted for published Lua programs, temporary in Studio Run."],
