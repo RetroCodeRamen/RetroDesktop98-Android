@@ -29,6 +29,23 @@ const luaImageTypes = ["image", "picture"];
 const luaTickTypes = ["check", "option"];
 const luaTextTypes = ["text", "multiline"];
 
+// VB6's Object and Procedure dropdowns are separate. Events remain Lua handlers.
+// The first event for each control is its default double-click designer action.
+const luaFormEvents = ["Load", "Activate", "Unload", "Click", "DblClick", "MouseDown", "MouseUp", "KeyDown", "KeyUp"];
+const luaPointerEvents = ["Click", "DblClick", "MouseDown", "MouseUp"];
+const luaFocusEvents = ["GotFocus", "LostFocus", "KeyDown", "KeyUp"];
+function luaEventsForType(type) {
+  if (type === "timer") return ["Timer"];
+  if (type === "button") return ["Click", "DblClick", ...luaFocusEvents, "MouseDown", "MouseUp"];
+  if (luaTextTypes.includes(type) || luaChoiceTypes.includes(type) || luaTickTypes.includes(type) ||
+      type === "hscroll" || type === "vscroll") {
+    return ["Change", ...luaPointerEvents, ...luaFocusEvents];
+  }
+  if (type === "label" || type === "image" || type === "picture" || type === "frame") return luaPointerEvents;
+  return [];
+}
+
+
 function luaWhole(value, minimum, maximum, fallback = minimum) {
   return Number.isFinite(value) ? clamp(Math.round(value), minimum, maximum) : fallback;
 }

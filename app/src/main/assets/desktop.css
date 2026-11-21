@@ -879,3 +879,10 @@ img { flex: 0 0 auto; user-select: none; vertical-align: middle; pointer-events:
 .recorder-range input { grid-column: span 2; width: 100%; margin: 3px 0 0; accent-color: #335b37; }
 .recorder-trims > .tool-button { justify-self: start; }
 .sound-recorder > .app-status { flex: none; }
+
+/* Compact Lua Studio: VB6-style Object + Event selectors fit on a 360dp phone. */
+.lua-shell[data-density="compact"] .lua-code-actions .lua-source-name { display: none; }
+.lua-shell[data-density="compact"] .lua-code-actions select {
+  flex: 1 1 0; min-width: 50px; max-width: none; font-size: 12px;
+}
+.lua-shell[data-density="compact"] .lua-code-actions .tool-button { flex: 0 0 auto; white-space: nowrap; }

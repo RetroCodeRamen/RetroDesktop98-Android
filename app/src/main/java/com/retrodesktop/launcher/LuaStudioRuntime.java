@@ -114,9 +114,11 @@ final class LuaStudioRuntime {
                 requests.add(new Navigation("unload", receiver));
             } else if ("Menu".equals(action) && receiver.menuItems.contains(name)) {
                 invoke(name + "_Click", LuaValue.NIL);
+            } else if (name.isEmpty() && isFormEvent(action)) {
+                invoke("Form_" + action, eventDetails(input));
             } else if (control != null && control.get("enabled").toboolean() && control.fires(action)) {
-                invoke(name + "_" + action, control.inputProperty() == null
-                        ? LuaValue.NIL : control.get(control.inputProperty()));
+                invoke(name + "_" + action, "Change".equals(action) && control.inputProperty() != null
+                        ? control.get(control.inputProperty()) : eventDetails(input));
             }
             navigate();
             return result("", false);
@@ -125,6 +127,29 @@ final class LuaStudioRuntime {
         } catch (LuaStudioDebugger.Limit limit) {
             return result(limit.getMessage(), true);
         }
+    }
+
+    // Event arguments are explicit, bounded scalar fields—not arbitrary JSON converted
+    // into Lua objects. The engine remains sandboxed from Android and Java reflection.
+    private static LuaValue eventDetails(JSONObject input) {
+        JSONObject raw = input.optJSONObject("args");
+        if (raw == null) return LuaValue.NIL;
+        LuaTable values = new LuaTable();
+        for (String key : new String[]{"x", "y", "button"}) {
+            if (raw.has(key)) values.set(key, LuaValue.valueOf(Math.max(-4096, Math.min(4096, raw.optInt(key)))));
+        }
+        for (String key : new String[]{"shift", "ctrl", "alt"}) {
+            if (raw.has(key)) values.set(key, LuaValue.valueOf(raw.optBoolean(key)));
+        }
+        for (String key : new String[]{"key", "code"}) {
+            if (raw.has(key)) values.set(key, LuaValue.valueOf(shorten(raw.optString(key), 40)));
+        }
+        return values;
+    }
+
+    private static boolean isFormEvent(String action) {
+        return "Click".equals(action) || "DblClick".equals(action) || "MouseDown".equals(action)
+                || "MouseUp".equals(action) || "KeyDown".equals(action) || "KeyUp".equals(action);
     }
 
     private void applyInputs(JSONObject updates) throws JSONException {
@@ -474,8 +499,14 @@ final class LuaStudioRuntime {
         }
 
         boolean fires(String action) {
-            return ("Click".equals(action) && "button".equals(type)) || ("Timer".equals(action) && "timer".equals(type))
-                    || ("Change".equals(action) && inputProperty() != null);
+            if ("Timer".equals(action)) return "timer".equals(type);
+            if ("Change".equals(action)) return inputProperty() != null;
+            if ("timer".equals(type)) return false;
+            if ("Click".equals(action) || "DblClick".equals(action) ||
+                    "MouseDown".equals(action) || "MouseUp".equals(action)) return true;
+            return ("GotFocus".equals(action) || "LostFocus".equals(action) ||
+                    "KeyDown".equals(action) || "KeyUp".equals(action)) &&
+                    type.matches("button|text|multiline|check|option|combo|list|hscroll|vscroll");
         }
 
         LuaValue get(String property) {

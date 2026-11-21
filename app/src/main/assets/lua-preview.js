@@ -22,13 +22,13 @@ function launchLuaProject(project, callbacks) {
     native.luaCommand("event", session, JSON.stringify({...event, updates}));
   }
 
-  function sendEvent(form, name, event) {
+  function sendEvent(form, name, event, args = null) {
     if (ended || (event === "Timer" && (paused || busy || !desktopVisible || document.hidden))) return;
     if (queue.length >= 32) {
       announce("Lua’s event queue is full.");
       return;
     }
-    queue.push({form, name, event});
+    queue.push({form, name, event, ...(args ? {args} : {})});
     dispatch();
   }
 
@@ -176,6 +176,7 @@ function renderLuaPreview(win) {
   const controls = new Map();
   const timers = new Map();
   const optionGroups = new Set();
+  surface.tabIndex = 0;
   surface.style.width = form.width + "px";
   surface.style.height = form.height + "px";
   surface.style.backgroundColor = form.color;
@@ -183,7 +184,13 @@ function renderLuaPreview(win) {
   viewport.append(surface);
   viewport.style.backgroundColor = form.color;
 
-  const send = (name, action) => win.options.sendEvent(form.name, name, action);
+  const send = (name, action, args) => win.options.sendEvent(form.name, name, action, args);
+  const pointerArgs = (event, bounds) => ({
+    x: Math.round(event.clientX - bounds.left), y: Math.round(event.clientY - bounds.top),
+    button: event.button, shift: event.shiftKey, ctrl: event.ctrlKey, alt: event.altKey
+  });
+  const keyboardArgs = event => ({key: event.key.slice(0, 30), code: event.code.slice(0, 40),
+    shift: event.shiftKey, ctrl: event.ctrlKey, alt: event.altKey});
   for (const menu of form.menus) {
     const action = menu.items.length
       ? windowMenu(menu.caption, menu.items.map(item => [item.caption, "", () => send(item.name, "Menu"), !item.enabled]))
@@ -200,7 +207,10 @@ function renderLuaPreview(win) {
       width: control.width + "px", height: control.height + "px"});
     const parts = luaObjectNode(control);
     const inputProperty = luaInputProperty(control);
-    if (control.type === "button") parts.node.addEventListener("click", () => send(control.name, "Click"));
+    shell.addEventListener("click", event => send(control.name, "Click", pointerArgs(event, shell.getBoundingClientRect())));
+    shell.addEventListener("dblclick", event => send(control.name, "DblClick", pointerArgs(event, shell.getBoundingClientRect())));
+    shell.addEventListener("pointerdown", event => send(control.name, "MouseDown", pointerArgs(event, shell.getBoundingClientRect())));
+    shell.addEventListener("pointerup", event => send(control.name, "MouseUp", pointerArgs(event, shell.getBoundingClientRect())));
     if (control.type === "option") {
       parts.input.name = win.options.session + "-" + form.name + "-" + control.group;
       if (control.checked && optionGroups.has(control.group)) control.checked = false;
@@ -229,11 +239,30 @@ function renderLuaPreview(win) {
     shell.append(parts.node);
     const focusable = control.type === "button" ? parts.node : parts.input;
     if (focusable && !control.tabStop) focusable.tabIndex = -1;
+    if (focusable) {
+      focusable.addEventListener("focus", () => send(control.name, "GotFocus"));
+      focusable.addEventListener("blur", () => send(control.name, "LostFocus"));
+      focusable.addEventListener("keydown", event => send(control.name, "KeyDown", keyboardArgs(event)));
+      focusable.addEventListener("keyup", event => send(control.name, "KeyUp", keyboardArgs(event)));
+    }
     controls.set(control.name, {shell, parts, focusable, control});
     surface.append(shell);
   }
 
+  surface.addEventListener("click", event => {
+    if (event.target === surface) send("", "Click", pointerArgs(event, surface.getBoundingClientRect()));
+  });
+  surface.addEventListener("dblclick", event => {
+    if (event.target === surface) send("", "DblClick", pointerArgs(event, surface.getBoundingClientRect()));
+  });
+  surface.addEventListener("pointerdown", event => {
+    if (event.target === surface) send("", "MouseDown", pointerArgs(event, surface.getBoundingClientRect()));
+  });
+  surface.addEventListener("pointerup", event => {
+    if (event.target === surface) send("", "MouseUp", pointerArgs(event, surface.getBoundingClientRect()));
+  });
   surface.addEventListener("keydown", event => {
+    if (event.target === surface) send("", "KeyDown", keyboardArgs(event));
     if (event.key !== "Tab") return;
     const ordered = [...controls.values()].filter(entry =>
       entry.focusable && entry.control.visible && entry.control.enabled && entry.control.tabStop)
@@ -244,6 +273,10 @@ function renderLuaPreview(win) {
       event.preventDefault();
       ordered[next].focusable.focus();
     }
+  });
+
+  surface.addEventListener("keyup", event => {
+    if (event.target === surface) send("", "KeyUp", keyboardArgs(event));
   });
 
   function synchronizeTimers(disabled) {

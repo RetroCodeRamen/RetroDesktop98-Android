@@ -11,4 +11,5 @@ jobs:
         with:
           node-version: '22'
       - run: node tests/dosbox-audio.test.js
+      - run: node tests/lua-studio-compat.test.js
       - run: python3 -m py_compile tests/check_apk_package.py

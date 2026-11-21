@@ -16,6 +16,21 @@ function luaExample(example = "counter") {
       code: 'local count = 0\n\nfunction Command1_Click()\n  count = count + 1\n  ui.set("Label1", "Clicks: " .. count)\n  print("Count", count)\nend\n\nfunction Command2_Click()\n  count = 0\n  ui.set("Label1", "Clicks: 0")\nend\n'
     };
   }
+  if (example === "events") {
+    return {...base, name: "Event Playground", form: {...base.form, caption: "Event Playground", height: 210},
+      controls: [
+        luaControl("label", "Label1", "Try typing, clicking and double-clicking", 12, 12, 275, 27),
+        luaControl("text", "Text1", "", 12, 47, 265, 29),
+        luaControl("button", "Command1", "Try me", 12, 94, 125, 36),
+        luaControl("label", "Label2", "Watch Immediate output", 12, 151, 270, 30)
+      ],
+      code: 'function Command1_Click()\n  ui.set("Label2", "Single click")\n  print("Button clicked")\nend\n\n' +
+        'function Command1_DblClick(event)\n  print("Double click at", event.x, event.y)\nend\n\n' +
+        'function Command1_MouseDown(event)\n  print("Pointer button", event.button)\nend\n\n' +
+        'function Text1_Change(value)\n  print("Text changed to", value)\nend\n\n' +
+        'function Text1_KeyDown(event)\n  print("Key", event.key)\nend\n'
+    };
+  }
   if (example === "greeter") {
     return {...base, name: "Hello Form", form: {...base.form, caption: "Hello Form", height: 188},
       controls: [
@@ -136,6 +151,10 @@ function renderLuaStudio(win) {
   let pictureTarget = null;
   const breakpoints = new Map();
   let watches = [];
+  const designerClipboard = [];
+  const history = [];
+  let historyIndex = -1;
+  let historyAt = 0;
   const sourceDoc = () => module || form;
   const sourceName = () => sourceDoc().name + ".lua";
   let method = "Form_Load";
@@ -171,7 +190,9 @@ function renderLuaStudio(win) {
   const gutters = element("pre", "lua-gutters", "1");
   const actions = element("div", "app-toolbar lua-code-actions");
   const objects = element("select", "text-entry");
-  objects.setAttribute("aria-label", "Event handler");
+  objects.setAttribute("aria-label", "Object (VB6-style selector)");
+  const eventKinds = element("select", "text-entry");
+  eventKinds.setAttribute("aria-label", "Procedure or event (VB6-style selector)");
   const immediate = element("pre", "lua-immediate");
   immediate.setAttribute("aria-label", "Immediate output");
   immediate.setAttribute("role", "log");
@@ -195,7 +216,56 @@ function renderLuaStudio(win) {
     else localStorage.setItem("retro98-lua-project", json);
   }
 
-  function modified() {
+  // Project-wide undo includes designer, properties, menus and code. Consecutive keystrokes
+  // in the same Lua file are coalesced so the 80-entry history is useful on a phone.
+  function recordHistory(kind = "design") {
+    const snapshot = JSON.stringify(project);
+    if (history[historyIndex]?.snapshot === snapshot) return;
+    const now = Date.now();
+    if (kind === "typing" && historyIndex > 0 && history[historyIndex]?.kind === "typing" &&
+        history[historyIndex]?.source === sourceName() && now - historyAt < 900) {
+      history[historyIndex] = {snapshot, kind, source: sourceName()};
+    } else {
+      history.splice(historyIndex + 1);
+      history.push({snapshot, kind, source: sourceName()});
+      if (history.length > 80) history.shift();
+      historyIndex = history.length - 1;
+    }
+    historyAt = now;
+  }
+
+  function resetHistory() {
+    history.length = 0;
+    historyIndex = -1;
+    recordHistory();
+  }
+
+  function travelHistory(direction) {
+    const next = historyIndex + direction;
+    if (next < 0 || next >= history.length) {
+      textStatus(direction < 0 ? "Nothing to undo." : "Nothing to redo.");
+      return;
+    }
+    const priorForm = form.name;
+    const priorModule = module?.name;
+    const view = pane;
+    project = luaProject(JSON.parse(history[next].snapshot));
+    historyIndex = next;
+    historyAt = 0;
+    form = project.forms.find(item => item.name === priorForm) || project.forms[0];
+    module = project.modules.find(item => item.name === priorModule) || null;
+    selected = "";
+    selectedControls.clear();
+    method = "Form_Load";
+    syncSource();
+    redrawDesign();
+    setPane(module ? "code" : view);
+    persist();
+    textStatus(direction < 0 ? "Undo complete." : "Redo complete.");
+  }
+
+  function modified(kind = "design") {
+    recordHistory(kind);
     clearTimeout(saveTimer);
     saveTimer = setTimeout(persist, 280);
   }
@@ -212,7 +282,7 @@ function renderLuaStudio(win) {
       textStatus("Line positions changed. Set the affected breakpoints again.");
     }
     updateGutters();
-    modified();
+    modified("typing");
   }
 
   function updateGutters() {
@@ -339,6 +409,39 @@ function renderLuaStudio(win) {
       ...form.menus.flatMap(menu => [menu.name, ...menu.items.map(item => item.name)])];
   }
 
+  function copyControls(cut = false) {
+    designerClipboard.splice(0, designerClipboard.length,
+      ...form.controls.filter(control => selectedControls.has(control.name))
+        .map(control => JSON.parse(JSON.stringify(control))));
+    if (!designerClipboard.length) { textStatus("Select one or more controls first."); return; }
+    if (cut) deleteControl();
+    textStatus(designerClipboard.length + (cut ? " control(s) cut." : " control(s) copied."));
+  }
+
+  function pasteControls() {
+    if (!designerClipboard.length) { textStatus("Nothing to paste."); return; }
+    if (form.controls.length + designerClipboard.length > 48) {
+      textStatus("This form can hold up to 48 controls."); return;
+    }
+    const next = [];
+    const left = Math.min(...designerClipboard.map(item => item.x));
+    const top = Math.min(...designerClipboard.map(item => item.y));
+    for (const item of designerClipboard) {
+      const name = luaFreeName(luaControlTypes[item.type].prefix, formObjectNames());
+      const control = {...JSON.parse(JSON.stringify(item)), name};
+      control.x = clamp(item.x - left + 12, 0, form.width - control.width);
+      control.y = clamp(item.y - top + 12, 0, form.height - control.height);
+      form.controls.push(control);
+      next.push(name);
+    }
+    selectedControls = new Set(next);
+    selected = next.at(-1);
+    redrawDesign();
+    redrawMethods();
+    modified();
+    textStatus(next.length + " control(s) pasted. New names have been assigned.");
+  }
+
   function arrangeControls(action) {
     const anchor = form.controls.find(control => control.name === selected);
     const group = form.controls.filter(control => selectedControls.has(control.name));
@@ -356,13 +459,29 @@ function renderLuaStudio(win) {
       selected = added[0];
       selectedControls = new Set(added);
     } else {
-      if (group.length < 2) { textStatus("Select two or more controls to align them."); return; }
-      for (const control of group) {
+      if (group.length < 2) { textStatus("Select two or more controls to format them."); return; }
+      const ordered = group.slice().sort((a, b) =>
+        (action === "distribute-vertical" ? a.y - b.y : a.x - b.x));
+      const dimension = action === "distribute-vertical" ? "y" : "x";
+      const lengthKey = action === "distribute-vertical" ? "height" : "width";
+      const span = ordered.at(-1)[dimension] - ordered[0][dimension];
+      const middle = (group.length - 1) || 1;
+      if (action.startsWith("distribute-") && group.length < 3) {
+        textStatus("Select at least three controls to distribute."); return;
+      }
+      for (let index = 0; index < ordered.length; index++) {
+        const control = ordered[index];
         if (action === "left") control.x = Math.min(anchor.x, form.width - control.width);
+        if (action === "right") control.x = clamp(anchor.x + anchor.width - control.width, 0, form.width - control.width);
         if (action === "top") control.y = Math.min(anchor.y, form.height - control.height);
-        if (action === "size") {
-          control.width = Math.min(anchor.width, form.width - control.x);
-          control.height = Math.min(anchor.height, form.height - control.y);
+        if (action === "bottom") control.y = clamp(anchor.y + anchor.height - control.height, 0, form.height - control.height);
+        if (action === "center-h") control.x = clamp(Math.round(anchor.x + anchor.width / 2 - control.width / 2), 0, form.width - control.width);
+        if (action === "center-v") control.y = clamp(Math.round(anchor.y + anchor.height / 2 - control.height / 2), 0, form.height - control.height);
+        if (["size", "width"].includes(action)) control.width = Math.min(anchor.width, form.width - control.x);
+        if (["size", "height"].includes(action)) control.height = Math.min(anchor.height, form.height - control.y);
+        if (action.startsWith("distribute-")) {
+          control[dimension] = clamp(Math.round(ordered[0][dimension] + span * index / middle),
+            0, form[dimension === "x" ? "width" : "height"] - control[lengthKey]);
         }
       }
     }
@@ -500,7 +619,7 @@ function renderLuaStudio(win) {
       node.addEventListener("pointerdown", event => dragControl(event, node, control));
       node.addEventListener("dblclick", event => {
         event.stopPropagation();
-        const on = luaControlTypes[control.type].event;
+        const on = luaEventsForType(control.type)[0];
         if (on) editHandler(control.name + "_" + on);
       });
       node.addEventListener("keydown", event => {
@@ -512,7 +631,7 @@ function renderLuaStudio(win) {
         }
         else if (event.key === "Enter") {
           selectControl(control.name);
-          const on = luaControlTypes[control.type].event;
+          const on = luaEventsForType(control.type)[0];
           if (on) editHandler(control.name + "_" + on);
           else setPane("properties");
         }
@@ -610,12 +729,12 @@ function renderLuaStudio(win) {
           textStatus("Enter a unique name starting with a letter. Use letters, digits, or underscores.");
           return current.name;
         }
-        const event = luaControlTypes[current.type].event;
-        if (event) {
+        // Keep all of a renamed control's event procedures together.
+        for (const event of luaEventsForType(current.type)) {
           const pattern = new RegExp("(\\bfunction\\s+)" + current.name + "_" + event + "(?=\\s*\\()", "g");
           form.code = form.code.replace(pattern, "$1" + value + "_" + event);
-          code.value = sourceDoc().code;
         }
+        code.value = sourceDoc().code;
         selectedControls.delete(current.name);
         selectedControls.add(value);
         selected = current.name = value;
@@ -688,7 +807,7 @@ function renderLuaStudio(win) {
         flag("Tab stop", "tabStop");
         number("Tab order", current, "tabIndex", 0, () => 99);
       }
-      const event = luaControlTypes[current.type].event;
+      const event = luaEventsForType(current.type)[0];
       if (event) buttons.append(toolbarButton(current.name + "_" + event, () => editHandler(current.name + "_" + event)));
       buttons.append(toolbarButton("Delete Control", deleteControl));
     }
@@ -706,15 +825,23 @@ function renderLuaStudio(win) {
   }
 
   function redrawMethods() {
-    const events = module ? [] : ["Form_Load", "Form_Activate", "Form_Unload",
-      ...form.controls.filter(control => luaControlTypes[control.type].event)
-        .map(control => control.name + "_" + luaControlTypes[control.type].event),
-      ...luaMenuCommands(form).map(item => item.name + "_Click")];
-    if (!events.includes(method)) method = "Form_Load";
-    objects.replaceChildren(...events.map(event => new Option(event, event)));
-    objects.value = method;
-    objects.hidden = !events.length;
-    openEvent.hidden = !events.length;
+    if (module) {
+      objects.hidden = eventKinds.hidden = openEvent.hidden = true;
+      return;
+    }
+    const all = ["Form", ...form.controls.map(item => item.name), ...luaMenuCommands(form).map(item => item.name)];
+    const split = method.lastIndexOf("_");
+    const wanted = split > 0 ? method.slice(0, split) : "Form";
+    const chosen = all.includes(wanted) ? wanted : "Form";
+    objects.replaceChildren(...all.map(item => new Option(item, item)));
+    objects.value = chosen;
+    const control = form.controls.find(item => item.name === chosen);
+    const events = chosen === "Form" ? luaFormEvents : control ? luaEventsForType(control.type) : ["Click"];
+    const wantedEvent = split > 0 ? method.slice(split + 1) : "";
+    eventKinds.replaceChildren(...events.map(event => new Option(event, event)));
+    eventKinds.value = events.includes(wantedEvent) ? wantedEvent : events[0];
+    method = chosen + "_" + eventKinds.value;
+    objects.hidden = eventKinds.hidden = openEvent.hidden = false;
   }
 
   function editHandler(name) {
@@ -731,7 +858,8 @@ function renderLuaStudio(win) {
       if (cursor < 0) cursor = code.value.length;
       else cursor++;
     } else {
-      const signature = name.endsWith("_Change") ? "value" : "";
+      const signature = name.endsWith("_Change") ? "value" :
+        /_(DblClick|MouseDown|MouseUp|KeyDown|KeyUp)$/.test(name) ? "event" : "";
       const stub = "function " + name + "(" + signature + ")\n  \nend\n";
       const leading = code.value.trimEnd();
       const result = (leading ? leading + "\n\n" : "") + stub;
@@ -992,6 +1120,7 @@ function renderLuaStudio(win) {
       method = "Form_Load";
       syncSource();
       backup = JSON.stringify(project);
+      resetHistory();
       clearTool();
       logs.length = 0;
       immediate.textContent = "";
@@ -1084,9 +1213,18 @@ function renderLuaStudio(win) {
     ["Export Project ZIP", "zip", () => saveFile("export-lua-zip")],
     null, ["Close", "", () => closeWindow(win.id)]
   ]);
+  const edit = windowMenu("Edit", [
+    ["Undo", "", () => travelHistory(-1)], ["Redo", "", () => travelHistory(1)],
+    null,
+    ["Cut Controls", "", () => copyControls(true)],
+    ["Copy Controls", "", () => copyControls()],
+    ["Paste Controls", "", pasteControls],
+    ["Delete Controls", "", deleteControl]
+  ]);
   const examples = windowMenu("Examples", [
     ["Click Counter", "calculator", () => switchProject(luaExample("counter"))],
     ["Hello Form", "lua", () => switchProject(luaExample("greeter"))],
+    ["Event Playground", "lua", () => switchProject(luaExample("events"))],
     ["Two-Form Project", "lua", () => switchProject(luaTwoFormExample())]
   ]);
   const help = windowMenu("Help", [
@@ -1100,7 +1238,15 @@ function renderLuaStudio(win) {
       textStatus(multiSelect ? "Tap controls to add or remove them from the selection." : "Multiple selection disabled.");
     }],
     ["Align Left", "", () => arrangeControls("left")],
+    ["Align Right", "", () => arrangeControls("right")],
     ["Align Top", "", () => arrangeControls("top")],
+    ["Align Bottom", "", () => arrangeControls("bottom")],
+    ["Center Horizontally", "", () => arrangeControls("center-h")],
+    ["Center Vertically", "", () => arrangeControls("center-v")],
+    ["Space Horizontally", "", () => arrangeControls("distribute-horizontal")],
+    ["Space Vertically", "", () => arrangeControls("distribute-vertical")],
+    ["Make Same Width", "", () => arrangeControls("width")],
+    ["Make Same Height", "", () => arrangeControls("height")],
     ["Make Same Size", "", () => arrangeControls("size")],
     ["Duplicate", "", () => arrangeControls("duplicate")],
     ["Toggle Grid Snap", "", () => { snapToGrid = !snapToGrid; redrawDesign(false); }],
@@ -1130,7 +1276,7 @@ function renderLuaStudio(win) {
     ["Clear Watches", "", () => { watches = []; textStatus("Watches cleared for the next run."); }],
     ["Clear Breakpoints", "", () => { breakpoints.clear(); updateGutters(); textStatus("Breakpoints cleared."); }]
   ]);
-  menuBar.append(file, examples, layout, debug, help);
+  menuBar.append(file, edit, examples, layout, debug, help);
   const runButton = toolbarButton("Run", () => run());
   runButton.classList.add("lua-run");
   runButton.title = "Run (F5 or Ctrl+Enter)";
@@ -1186,6 +1332,25 @@ function renderLuaStudio(win) {
     }
   });
   win.node.addEventListener("keydown", event => {
+    const command = event.ctrlKey || event.metaKey;
+    const key = event.key.toLowerCase();
+    if (command && !event.altKey && ((key === "z" && !event.shiftKey) || key === "y" ||
+        (key === "z" && event.shiftKey)) &&
+        (pane === "code" || pane === "design") &&
+        (document.activeElement === code || document.activeElement === artboard ||
+          document.activeElement === win.node || document.activeElement?.classList.contains("lua-design-control"))) {
+      event.preventDefault();
+      travelHistory(key === "z" && !event.shiftKey ? -1 : 1);
+      return;
+    }
+    if (command && pane === "design" && ["c", "x", "v"].includes(key) &&
+        !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) {
+      event.preventDefault();
+      if (key === "c") copyControls();
+      if (key === "x") copyControls(true);
+      if (key === "v") pasteControls();
+      return;
+    }
     if (event.key === "F5" || ((event.ctrlKey || event.metaKey) && event.key === "Enter")) {
       event.preventDefault();
       run();
@@ -1221,9 +1386,13 @@ function renderLuaStudio(win) {
       textStatus("Ready");
     }
   });
-  const openEvent = toolbarButton("Open Event", () => editHandler(objects.value));
-  actions.append(codeCaption, objects, openEvent);
-  objects.addEventListener("change", () => { method = objects.value; });
+  const openEvent = toolbarButton("Open Event", () => editHandler(objects.value + "_" + eventKinds.value));
+  actions.append(codeCaption, objects, eventKinds, openEvent);
+  objects.addEventListener("change", () => {
+    method = objects.value + "_" + (objects.value === "Form" ? "Load" : "Click");
+    redrawMethods();
+  });
+  eventKinds.addEventListener("change", () => { method = objects.value + "_" + eventKinds.value; });
   const source = element("div", "lua-source");
   gutters.setAttribute("aria-hidden", "true");
   const findRow = element("div", "app-toolbar lua-find-bar");
@@ -1316,6 +1485,7 @@ function renderLuaStudio(win) {
   syncSource();
   updateToolSelection();
   setPane("design");
+  resetHistory();
 }
 
 function showLuaHelp() {
@@ -1323,7 +1493,10 @@ function showLuaHelp() {
     message: "Tap a Toolbox control and then tap the form. Drag a placed control or its resize handle. " +
       "Double-click a control or choose its event in Properties to write a handler. " +
       "Use ui.get(name[, property]) and ui.set(name[, property], value). Properties are text, checked, value, enabled, and visible. " +
-      "Use print() for Immediate output and ui.message() for a message. Press Run to test your form.",
+      "Use print() for Immediate output and ui.message() for a message. The Code pane has VB6-style Object and Event selectors. " +
+      "Change(value) receives the changed value. KeyDown(event), MouseDown(event), and DblClick(event) receive " +
+      "an event table with key, code, x, y, button, shift, ctrl, and alt where applicable. " +
+      "Use Edit for designer Undo, Redo, Copy, and Paste. Press Run to test your form.",
     accept: "OK", onAccept: () => {}});
 }
 
@@ -1344,6 +1517,10 @@ function showLuaBrowser(studio) {
     ["ui.hide(form)", "Hide a form and preserve its Lua state. Omit the name for the current form."],
     ["ui.unload(form)", "Call Form_Unload and reset the form. Omit the name for the current form."],
     ["ui.message(text)", "Show a message in the preview and log it to Immediate."],
+    ["*_Change(value)", "Changed text, checkbox, selection or scrollbar. First argument is the new value."],
+    ["*_KeyDown(event)", "Keyboard event table: key, code, shift, ctrl, alt."],
+    ["*_MouseDown(event)", "Pointer event table: x, y, button, shift, ctrl, alt."],
+    ["*_DblClick(event)", "Double-click handler with pointer information."],
     ["print(…)", "Write text and values to Immediate."],
     ["shared", "A Lua table shared across the project’s modules and forms."]
   ];
