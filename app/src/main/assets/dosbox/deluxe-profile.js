@@ -11,19 +11,15 @@
     "0":48, "1":49, "2":50, "3":51, "4":52, "5":53,
     "6":54, "7":55, "8":56, "9":57, MouseLeft:-1, MouseRight:-2
   });
-  // v2 ergonomic presets: clusters near the sides, and below the DOS image
-  // whenever portrait has unused space. Coordinates are viewport percentages.
+  // v3 positions are percentages of the black CONTROL DOCK, never the game.
+  // This includes landscape where we reserve room for the dock beneath DOS pixels.
   const POSITIONS = Object.freeze({
-    up:[16,77],left:[8,83],down:[16,89],right:[24,83],
-    a:[80,82],b:[91,76],shift:[68,89],start:[52,95],esc:[8,9]
+    up:[25,18],left:[10,50],down:[25,82],right:[40,50],
+    a:[75,50],b:[90,18],shift:[78,82],start:[56,82]
   });
   const LANDSCAPE_POSITIONS = Object.freeze({
-    up:[12,70],left:[8,80],down:[12,90],right:[16,80],
-    a:[85,80],b:[92,70],shift:[78,90],start:[52,92],esc:[6,8]
-  });
-  const LEGACY_POSITIONS = Object.freeze({
-    up:[15,65],left:[6,76],down:[15,86],right:[24,76],
-    a:[80,75],b:[91,65],start:[52,87],esc:[52,11]
+    up:[12,18],left:[7,50],down:[12,82],right:[17,50],
+    a:[85,50],b:[93,18],shift:[79,82],start:[55,82]
   });
   const DEFAULT_TOUCH = Object.freeze({up:265,left:263,down:264,right:262,a:341,b:342,shift:340,start:257,esc:256});
   const DEFAULT_GAMEPAD = Object.freeze({0:341,1:342,2:32,3:257,4:290,5:294,8:256,9:257,12:265,13:264,14:263,15:262});
@@ -31,7 +27,7 @@
   const clamp = (v,min,max,fallback) => Number.isFinite(Number(v)) ? Math.min(max,Math.max(min,Number(v))) : fallback;
   const key = (value,fallback) => ALLOWED.has(Number(value)) ? Number(value) : fallback;
   function defaults() {
-    return {layoutVersion:2,orientation:"auto",screen:"fit",cycles:"auto",sb:"sb16",irq:7,
+    return {layoutVersion:3,orientation:"auto",screen:"fit",cycles:"auto",sb:"sb16",irq:7,
       touchVisible:true,touchSize:60,touchOpacity:70,deadzone:0.45,
       touch:{...DEFAULT_TOUCH},gamepad:{...DEFAULT_GAMEPAD},
       positions:Object.fromEntries(Object.entries(POSITIONS).map(([k,v])=>[k,[...v]])),
@@ -49,19 +45,19 @@
     d.touchSize=clamp(source.touchSize,36,86,d.touchSize);
     d.touchOpacity=clamp(source.touchOpacity,30,100,d.touchOpacity);
     d.deadzone=clamp(source.deadzone,0.25,0.85,d.deadzone);
-    const modern=source.layoutVersion===2;
+    const modern=source.layoutVersion===3;
     for(const name of Object.keys(d.touch)) {
       d.touch[name]=key(source.touch?.[name],d.touch[name]);
-      // Preserve hand-edited positions from v1 but migrate untouched default
-      // positions to the new ergonomic design. Mappings always survive.
+      // v1/v2 used FULL-VIEWPORT positions: carrying their Y values into the
+      // compact black dock would overlap buttons. Migrate position defaults
+      // once, while preserving custom keyboard/gamepad mappings and settings.
+      if(!modern || !Object.hasOwn(d.positions,name)) continue;
       const old=source.positions?.[name];
-      const previouslyDefault=Array.isArray(old)&&LEGACY_POSITIONS[name]&&
-        old.length===2&&Number(old[0])===LEGACY_POSITIONS[name][0]&&Number(old[1])===LEGACY_POSITIONS[name][1];
-      if(Array.isArray(old)&&old.length===2&&(modern||!previouslyDefault)) {
+      if(Array.isArray(old)&&old.length===2) {
         d.positions[name]=[clamp(old[0],3,97,d.positions[name][0]),clamp(old[1],6,97,d.positions[name][1])];
       }
       const wide=source.positionsLandscape?.[name];
-      if(modern&&Array.isArray(wide)&&wide.length===2) {
+      if(Array.isArray(wide)&&wide.length===2) {
         d.positionsLandscape[name]=[clamp(wide[0],3,97,d.positionsLandscape[name][0]),
           clamp(wide[1],6,97,d.positionsLandscape[name][1])];
       }
@@ -74,7 +70,7 @@
   }
   function resetPositions(profile) {
     const fresh=defaults();
-    return {...profile,positions:fresh.positions,positionsLandscape:fresh.positionsLandscape,layoutVersion:2};
+    return {...profile,positions:fresh.positions,positionsLandscape:fresh.positionsLandscape,layoutVersion:3};
   }
   function option(conf,section,setting,value) {
     const lines=String(conf||"").replace(/\r\n/g,"\n").split("\n");

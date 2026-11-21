@@ -7,6 +7,9 @@
   const settings = document.getElementById("deluxe-settings");
   const gamepadStatus = document.getElementById("gamepad-state");
   const touchIds = ["up","left","down","right","a","b","shift","start","esc"];
+  // Esc lives in the toolbar below the display, not in the movable overlay.
+  const movableIds = touchIds.filter(id => id !== "esc");
+  const dock = document.getElementById("fullscreen-dock");
   const selectKeys = Object.entries(model.KEYS).map(([title, code]) => [title, code]);
   let profile = model.defaults();
   let identity = "demo-v1", fullscreen = false, editLayout = false, settingsOpen = false, connectedPad = "";
@@ -67,10 +70,14 @@
     document.getElementById("layout-edit").setAttribute("aria-pressed",String(editLayout));
     const landscape=window.innerWidth>window.innerHeight;
     const positions=model.positions(profile,landscape);
-    for(const id of touchIds){
+    for(const id of movableIds){
       const item=overlay.querySelector(`[data-touch="${id}"]`);
       const [x,y]=positions[id];
-      item.style.left=x+"%"; item.style.top=y+"%";
+      // Clamp every button's CENTER to the dock, so large controls or short
+      // landscape screens cannot push touch targets onto the game picture.
+      const radius=profile.touchSize/2;
+      item.style.left=`clamp(${radius}px, ${x}%, calc(100% - ${radius}px))`;
+      item.style.top=`clamp(${radius}px, ${y}%, calc(100% - ${radius}px))`;
       if(!["up","down","left","right"].includes(id)) {
         const action=id==="shift"?"SHIFT":id.toUpperCase();
         item.textContent=action;
@@ -103,22 +110,26 @@
     editLayout=false; overlay.classList.remove("editing");
     document.getElementById("layout-edit-full").hidden=true;store();showProfile();
   });
-  // Unlike object-fit:contain in a full-height canvas, size the canvas itself
-  // to the DOS image. This keeps the picture anchored at the TOP in portrait.
+  // Size the actual canvas AND its parent. The dock is a subsequent flex item,
+  // so fullscreen actions, ESC and touch controls can never overlap DOS pixels.
   function layoutGameScreen() {
-    if(!fullscreen){canvas.style.width="";canvas.style.height="";return;}
-    const rect=base.getBoundingClientRect();
-    if(rect.width<=0||rect.height<=0||!canvas.width||!canvas.height)return;
-    const scale=Math.min(rect.width/canvas.width,rect.height/canvas.height);
+    if(!fullscreen){base.style.height="";canvas.style.width="";canvas.style.height="";return;}
+    if(!canvas.width||!canvas.height)return;
+    const width=base.clientWidth || document.documentElement.clientWidth || window.innerWidth;
+    const viewportHeight=document.documentElement.clientHeight || window.innerHeight;
+    const availableHeight=Math.max(1,viewportHeight-dock.getBoundingClientRect().height);
+    const scale=Math.min(width/canvas.width,availableHeight/canvas.height);
     const stretch=profile.screen==="stretch";
-    canvas.style.width=Math.max(1,Math.floor(stretch?rect.width:canvas.width*scale))+"px";
-    canvas.style.height=Math.max(1,Math.floor(stretch?rect.height:canvas.height*scale))+"px";
+    const imageWidth=Math.max(1,Math.floor(stretch?width:canvas.width*scale));
+    const imageHeight=Math.max(1,Math.floor(stretch?availableHeight:canvas.height*scale));
+    base.style.height=imageHeight+"px";
+    canvas.style.width=imageWidth+"px";
+    canvas.style.height=imageHeight+"px";
   }
   window.dosboxFrameSizeChanged=layoutGameScreen;
-  const resizeGame = () => {layoutGameScreen();showProfile();};
+  const resizeGame = () => {showProfile();};
   window.addEventListener("resize",resizeGame);
-  if(typeof ResizeObserver!=="undefined") new ResizeObserver(layoutGameScreen).observe(base);
-  function updateFullscreen(enabled) {
+  if(typeof ResizeObserver!=="undefined") new ResizeObserver(layoutGameScreen).observe(dock);  function updateFullscreen(enabled) {
     fullscreen=Boolean(enabled);
     document.body.classList.toggle("dos-fullscreen",fullscreen);
     document.getElementById("fullscreen-toggle").textContent=fullscreen?"Restore Window":"Fullscreen";
@@ -142,13 +153,15 @@
     activeSources.clear();
     lastGamepadSources.clear();
   }
-  for(const button of overlay.querySelectorAll("[data-touch]")) {
+  // ESC is a real held keyboard input in the bottom toolbar. Other touch
+  // buttons remain draggable inside the dock's control region.
+  for(const button of document.querySelectorAll("[data-touch]")) {
     const id=button.dataset.touch;
     button.addEventListener("pointerdown",event=>{
       if(!emulator || settingsOpen || !active || paused) return;
       event.preventDefault();button.setPointerCapture(event.pointerId);
       if(editLayout) {
-        button.dataset.drag=String(event.pointerId);
+        if(button.closest("#deluxe-touch")) button.dataset.drag=String(event.pointerId);
       } else {
         const source="touch:"+id+":"+event.pointerId;
         activeSources.add(source);

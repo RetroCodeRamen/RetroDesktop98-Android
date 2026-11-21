@@ -7,18 +7,26 @@
 <script defer src="/engine/emulators.js"></script><script defer src="/deluxe-profile.js"></script><script defer src="/player.js"></script><script defer src="/player-deluxe.js"></script>
 </head><body>
 <div id="picture"><canvas id="screen" width="640" height="400" tabindex="0" aria-label="DOSBox display"></canvas></div>
-<div id="fullscreen-bar"><button id="fullscreen-exit" type="button">↙ Desktop</button>
-<span>DOSBox Deluxe</span><button id="fullscreen-settings" type="button">Controls / Setup</button><span id="gamepad-state">No controller connected</span></div>
-<div id="deluxe-touch" aria-label="Fullscreen touch game controls" hidden>
-<button data-touch="up" type="button" aria-label="Up">▲</button>
-<button data-touch="left" type="button" aria-label="Left">◀</button>
-<button data-touch="down" type="button" aria-label="Down">▼</button>
-<button data-touch="right" type="button" aria-label="Right">▶</button>
-<button data-touch="a" type="button">A</button><button data-touch="b" type="button">B</button>
-<button data-touch="shift" type="button" aria-label="Hold Shift">SHIFT</button>
-<button data-touch="start" type="button">START</button><button data-touch="esc" type="button">ESC</button>
+<!-- In fullscreen, the dock is IN DOCUMENT FLOW below the canvas: none of
+     its controls can cover DOS pixels, regardless of screen orientation. -->
+<div id="fullscreen-dock" aria-label="DOSBox controls below the game">
+  <div id="deluxe-touch" aria-label="Touch game controls" hidden>
+    <button data-touch="up" type="button" aria-label="Up">▲</button>
+    <button data-touch="left" type="button" aria-label="Left">◀</button>
+    <button data-touch="down" type="button" aria-label="Down">▼</button>
+    <button data-touch="right" type="button" aria-label="Right">▶</button>
+    <button data-touch="a" type="button">A</button><button data-touch="b" type="button">B</button>
+    <button data-touch="shift" type="button" aria-label="Hold Shift">SHIFT</button>
+    <button data-touch="start" type="button">START</button>
+  </div>
+  <div id="fullscreen-bar" aria-label="DOSBox fullscreen actions">
+    <button id="fullscreen-exit" type="button">↙ Desktop</button>
+    <button id="fullscreen-esc" data-touch="esc" type="button" aria-label="Hold Esc">ESC</button>
+    <button id="fullscreen-settings" type="button">Controls / Setup</button>
+    <button id="layout-edit-full" type="button" hidden>Done Moving Controls</button>
+    <span id="gamepad-state">No controller connected</span>
+  </div>
 </div>
-<button id="layout-edit-full" type="button" hidden>Done Moving Controls</button>
 <div id="deluxe-settings" role="dialog" aria-label="DOSBox Deluxe Settings" hidden>
 <div class="settings-heading"><strong>DOSBox Deluxe · Game Profile</strong><button id="settings-close" type="button">Close</button></div>
 <p class="hint">Mappings, scaling, and touch layout save separately for each game. CPU and audio choices apply on next launch.</p>
