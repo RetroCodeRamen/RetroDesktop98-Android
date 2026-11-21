@@ -1,0 +1,112 @@
+[
+  {
+    "id": "mechwarrior-2",
+    "title": "MechWarrior 2",
+    "genre": "Simulation",
+    "edition": "DOS demo",
+    "description": "Pilot a BattleMech in the 1995 demo. Let DOSBox unpack it on first launch, then follow setup. F1 shows the cockpit controls.",
+    "source": "https://www.dosgamesarchive.com/download/mechwarrior-2-31st-century-combat/",
+    "zip": "https://image.dosgamesarchive.com/games/mech2dem.zip",
+    "size": 5035884,
+    "sha256": "a623a6072b683b3b25b2f6dfdf20424c5c6c58a2c1df02e27f26fa170414cf77",
+    "start": "config -set \"cpu cycles=fixed 36000\"\nIF EXIST C:\\MW2DEMO\\VFX\\VESA768.DLL GOTO PLAY\nIF EXIST COMPRESS.EXE GOTO UNPACK\nMECH2DEM.EXE\n:UNPACK\nMD C:\\MW2DEMO\nCD \\MW2DEMO\nC:\\COMPRESS.EXE\n:PLAY\nconfig -set \"cpu cycles=auto\"\nCD \\MW2DEMO\nIF EXIST SETUP.BAT CALL SETUP.BAT"
+  },
+  {
+    "id": "incredible-machine",
+    "title": "The Incredible Machine",
+    "genre": "Puzzle",
+    "edition": "DOS demo",
+    "description": "Build Rube Goldberg contraptions. Choose Play in Smart Start. If the screen stays dark after the intro loads, tap Esc.",
+    "source": "https://www.dosgamesarchive.com/download/the-incredible-machine",
+    "zip": "https://image.dosgamesarchive.com/games/tim.zip",
+    "size": 330563,
+    "sha256": "bbf082d76eccad54a9b2470769a9dbad50512a64a3a281ff0845d9cd96ab8c3c",
+    "start": "IF EXIST C:\\DYNAMIX\\TIM\\TIM.EXE GOTO PLAY\nINSTALL.COM\nGOTO END\n:PLAY\nCD \\DYNAMIX\\TIM\nTIM.EXE\n:END"
+  },
+  {
+    "id": "the-dig",
+    "title": "The Dig",
+    "genre": "Adventure",
+    "edition": "DOS demo",
+    "description": "The LucasArts sci-fi adventure demo. Tap Esc to skip the intro. GOG sells the full game.",
+    "source": "https://www.dosgamesarchive.com/download/the-dig/",
+    "gog": "https://www.gog.com/en/game/the_dig",
+    "zip": "https://image.dosgamesarchive.com/games/dig-dem.zip",
+    "size": 28309570,
+    "sha256": "286556be803a1e9f6f6c0fcc5a6069b6b10674c60032509c0fc7e419b2c0ad1d",
+    "start": "config -set \"cpu cycles=fixed 10000\"\nconfig -set \"render aspect=false\"\nconfig -set \"render scaler=none\"\nmount d CD.ROM -t cdrom\nd:\ncd DEMOS\\THEDIG\nloadfix -25\nTHEDIG.EXE ic:\\lecdemos\\dig\\"
+  },
+  {
+    "id": "jill",
+    "title": "Jill of the Jungle",
+    "genre": "Platformer",
+    "edition": "DOS episode 1",
+    "description": "The original Epic MegaGames shareware episode. GOG offers the full trilogy free with an account.",
+    "source": "https://www.dosgamesarchive.com/download/jill-of-the-jungle/",
+    "gog": "https://www.gog.com/en/game/jill_of_the_jungle_the_complete_trilogy",
+    "zip": "https://image.dosgamesarchive.com/games/jill1.zip",
+    "size": 306608,
+    "sha256": "651150f946444b48832745fc2e35e7fde30988aa89e2ef885b5d6a1012485cb9",
+    "start": "JILL.EXE"
+  },
+  {
+    "id": "beneath-steel-sky",
+    "title": "Beneath a Steel Sky",
+    "genre": "Adventure",
+    "edition": "Free full DOS game",
+    "description": "Revolution Software’s cyberpunk point-and-click adventure, floppy edition.",
+    "source": "https://www.dosgamesarchive.com/download/beneath-a-steel-sky/",
+    "zip": "https://image.dosgamesarchive.com/games/sky-disk.zip",
+    "size": 7868383,
+    "sha256": "fd214e8a4be0b2cb795e9f821a800dad64c6d14186acff41363530bd60ba39f7",
+    "start": "SKY.EXE"
+  },
+  {
+    "id": "tyrian",
+    "title": "Tyrian 2.1",
+    "genre": "Shooter",
+    "edition": "Free full DOS game",
+    "description": "A vertical space shooter with ship upgrades and a full story campaign.",
+    "source": "https://www.camanis.net/",
+    "zip": "https://www.camanis.net/tyrian/tyrian21.zip",
+    "size": 4754048,
+    "sha256": "7790d09a2a3addcd33c66ef063d5900eb81cc9c342f4807eb8356364dd1d9277",
+    "start": "CD TYRIAN21\nTYRIAN.EXE"
+  },
+  {
+    "id": "digger",
+    "title": "Digger Remastered",
+    "genre": "Arcade",
+    "edition": "Free full DOS game",
+    "description": "Dig tunnels, grab gems, and dodge monsters in the author’s DOS remake.",
+    "source": "https://digger.org/download.html",
+    "zip": "https://digger.org/digger.zip",
+    "size": 72571,
+    "sha256": "378c315a5e8ca39a0c0528d16846dfa157bfa9f4f92583fc7be08dd3522c81a0",
+    "start": "DIGGER.EXE"
+  },
+  {
+    "id": "dognapped",
+    "title": "Dognapped! (Rescue Rover 2)",
+    "genre": "Puzzle",
+    "edition": "GOG release",
+    "description": "Rescue Rusty from robot-filled rooms. GOG’s Rescue Rover Collection includes both games.",
+    "gog": "https://www.gog.com/en/game/rescue_rover_collection"
+  },
+  {
+    "id": "quarky",
+    "title": "Quarky & Quaysoo’s Turbo Science",
+    "genre": "Educational",
+    "edition": "Import your DOS copy",
+    "description": "Sierra’s science-quiz road race. Add your extracted DOS game files as a ZIP.",
+    "source": "https://www.wiki.sierrahelp.com/index.php/New_Installers_for_Sierra_Games#Q"
+  },
+  {
+    "id": "mechwarrior",
+    "title": "MechWarrior (1989)",
+    "genre": "Simulation",
+    "edition": "Import your DOS copy",
+    "description": "The original Dynamix game. Add your extracted DOS game files as a ZIP.",
+    "source": "https://www.gog.com/dreamlist/game/mechwarrior"
+  }
+]

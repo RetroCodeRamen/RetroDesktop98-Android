@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file:; img-src 'self' file: data:; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <title>Retro Desktop 98</title>
+  <link rel="stylesheet" href="desktop.css">
+  <link rel="stylesheet" href="shell.css">
+  <link rel="stylesheet" href="terminal.css">
+  <script defer src="icons.js"></script>
+  <script defer src="desktop-games.js"></script>
+  <script defer src="mail.js"></script>
+  <script defer src="paint.js"></script>
+  <script defer src="display.js"></script>
+  <script defer src="lua-project.js"></script>
+  <script defer src="lua-preview.js"></script>
+  <script defer src="lua-programs.js"></script>
+  <script defer src="lua-studio.js"></script>
+  <script defer src="retro-amp.js"></script>
+  <script defer src="word-rtf.js"></script>
+  <script defer src="wordpad.js"></script>
+  <script defer src="sound-recorder.js"></script>
+  <script defer src="explorer-shell.js"></script>
+  <script defer src="terminal-screen.js"></script>
+  <script defer src="terminal.js"></script>
+  <script defer src="charmap.js"></script>
+  <script defer src="ansi-viewer.js"></script>
+  <script defer src="dos-prompt.js"></script>
+  <script defer src="workspace-actions.js"></script>
+  <script defer src="dosbox-window.js"></script>
+  <script defer src="dos-store.js"></script>
+  <script defer src="desktop-apps.js"></script>
+  <script defer src="shell.js"></script>
+  <script defer src="desktop.js"></script>
+  <script defer src="clippy.js"></script>
+</head>
+<body>
+  <main id="desktop" aria-label="Desktop" tabindex="-1">
+    <div id="desktop-grid"></div>
+  </main>
+  <aside id="active-desktop" class="bevel" aria-label="Active Desktop" hidden></aside>
+  <div id="windows" aria-label="Desktop windows"></div>
+  <div id="transient"></div>
+  <aside id="clippy-panel" class="bevel" aria-labelledby="clippy-title" hidden>
+    <div class="titlebar">
+      <span id="clippy-title" class="title-text">Clippy</span>
+      <div id="clippy-close" class="title-controls"></div>
+    </div>
+    <div id="clippy-log" class="clippy-log" role="log" aria-live="polite">
+      <div class="clippy-greeting">
+        <span id="clippy-mascot" aria-hidden="true"></span>
+        <p>Need a hand? Ask me a question or send a search to the browser.</p>
+      </div>
+    </div>
+    <div class="clippy-model">
+      <p id="clippy-status" role="status">Set up an offline model for chat.</p>
+      <progress id="clippy-progress" max="100" value="0" hidden aria-label="Model download"></progress>
+      <div id="clippy-model-actions" class="clippy-actions">
+        <button id="clippy-download" class="bevel tool-button" type="button">Download Model (343 MB)</button>
+        <button id="clippy-import" class="bevel tool-button" type="button">Import Model…</button>
+      </div>
+      <div id="clippy-chat-actions" class="clippy-actions" hidden>
+        <button id="clippy-clear" class="bevel tool-button" type="button">New Chat</button>
+        <button id="clippy-remove" class="bevel tool-button" type="button">Remove Model…</button>
+      </div>
+    </div>
+    <form id="clippy-form">
+      <input id="clippy-question" class="text-entry" type="text" aria-label="Question or search query"
+        placeholder="Ask Clippy…" maxlength="800" autocomplete="off" enterkeyhint="send">
+      <div class="clippy-actions">
+        <button class="bevel tool-button" type="submit">Ask</button>
+        <button id="clippy-search" class="bevel tool-button" type="button">Search Web</button>
+      </div>
+    </form>
+  </aside>
+  <footer id="taskbar" aria-label="Taskbar">
+    <button id="start" class="bevel" aria-haspopup="true" aria-expanded="false">Start</button>
+    <span class="bar-divider" aria-hidden="true"></span>
+    <div id="quick-launch" aria-label="Quick Launch">
+      <button id="show-desktop" title="Show Desktop" aria-label="Show Desktop"></button>
+      <button id="internet" title="Internet Explorer" aria-label="Internet Explorer"></button>
+    </div>
+    <span class="bar-divider" aria-hidden="true"></span>
+    <div id="tasks" aria-label="Open windows"></div>
+    <div id="tray" class="sunken">
+      <button id="volume-tray" title="Media Volume" aria-label="Media Volume" aria-expanded="false"></button>
+      <button id="battery-tray" title="Power Status" aria-label="Power Status" aria-expanded="false"></button>
+      <button id="network" title="Network" aria-label="Network"></button>
+      <button id="clippy-button" title="Clippy" aria-label="Clippy" aria-controls="clippy-panel" aria-expanded="false"></button>
+      <button id="now-playing" type="button" aria-label="Now Playing" title="Now Playing" hidden></button>
+      <button id="clock" title="Date and time" aria-label="Date and time"></button>
+    </div>
+  </footer>
+  <section id="desktop-power" aria-label="Launcher power" aria-live="polite" hidden></section>
+  <output id="notice" role="status" hidden></output>
+</body>
+</html>

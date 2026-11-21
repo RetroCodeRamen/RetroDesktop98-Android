@@ -1,0 +1,65 @@
+.terminal-pane, .charmap {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.terminal-toolbar { gap: 3px; }
+.terminal-toolbar .tool-button { padding-inline: 6px; }
+.tty-display {
+  --tty-bg: #0a0d15;
+  --tty-ink: #e2e5e6;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin: 0 2px;
+  padding: 6px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--tty-bg);
+  color: var(--tty-ink);
+  font: 13px/1.26 "IBM Plex Mono", "Courier Prime", monospace;
+  text-rendering: optimizeSpeed;
+  font-variant-ligatures: none;
+  user-select: text;
+}
+.tty-line { white-space: pre; line-height: 1.26; min-height: 1.26em; width: max-content; }
+.tty-cursor { color: var(--tty-bg) !important; background: var(--tty-ink) !important; }
+.terminal-input { display: flex; align-items: stretch; gap: 4px; flex: none; padding: 4px 2px 0; }
+.terminal-input .tty-input { min-width: 0; flex: 1; resize: none; }
+.terminal-input .tool-button { padding-inline: 10px; }
+.terminal-connect { gap: 6px; }
+.terminal-connect small { color: #333; }
+.terminal-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; }
+.terminal-fields .form-label { min-width: 0; margin: 0; }
+.terminal-fields .form-label:nth-child(-n+3) { grid-column: span 2; }
+.terminal-fields .text-entry { width: 100%; }
+.charmap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(27px, 1fr));
+  align-content: start;
+  gap: 2px;
+  flex: 1;
+  overflow: auto;
+  margin: 1px 3px;
+  padding: 5px;
+  background: #fff;
+}
+.charmap-cell { min-height: 31px; font: 17px "IBM Plex Mono", "Courier Prime", monospace; }
+.charmap-cell[aria-pressed="true"] { color: #fff; background: var(--selection); }
+.charmap .app-toolbar input { flex: 1; min-width: 62px; }
+@media (max-width: 400px) {
+  .terminal-toolbar .tool-button { font-size: 12px; padding-inline: 5px; }
+  .terminal-fields { gap: 4px 6px; }
+}
+.dos-output { font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dos-address {
+  max-width: 42%;
+  overflow-x: auto;
+  align-self: center;
+  font: 12px "IBM Plex Mono", "Courier Prime", monospace;
+  white-space: nowrap;
+  padding: 2px 1px 2px 3px;
+}
+.dos-pane .terminal-input input { min-width: 0; flex: 1; }
+.ansi-display { padding-bottom: 10px; }
