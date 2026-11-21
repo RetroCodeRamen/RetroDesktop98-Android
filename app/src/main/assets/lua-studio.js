@@ -406,7 +406,36 @@ function renderLuaStudio(win) {
 
   function formObjectNames() {
     return [...form.controls.map(control => control.name),
+      ...form.controls.map(control => control.arrayName).filter(Boolean),
       ...form.menus.flatMap(menu => [menu.name, ...menu.items.map(item => item.name)])];
+  }
+
+  function arrayNameValid(name, current) {
+    if (!name) return true;
+    if (!luaIdentifier.test(name) || name === "Form" || form.controls.some(peer => peer.name === name) ||
+        form.menus.some(menu => menu.name === name || menu.items.some(item => item.name === name))) return false;
+    return !form.controls.some(peer => peer !== current && peer.arrayName === name && peer.type !== current.type);
+  }
+
+  function ensureArrayIndex(control) {
+    if (!control.arrayName) return;
+    const taken = form.controls.some(peer => peer !== control && peer.arrayName === control.arrayName &&
+      peer.arrayIndex === control.arrayIndex);
+    if (taken) control.arrayIndex = luaArrayNextIndex(form, control.arrayName);
+  }
+
+  function createArray() {
+    const current = form.controls.find(control => control.name === selected);
+    if (!current) { textStatus("Select a control first."); return; }
+    if (current.arrayName) { textStatus("This control already belongs to " + current.arrayName + "."); return; }
+    const used = formObjectNames();
+    const name = luaFreeName(current.name.slice(0, 27) + "Arr", used);
+    current.arrayName = name;
+    current.arrayIndex = 0;
+    redrawProperties();
+    redrawMethods();
+    modified();
+    textStatus(name + " created. Duplicate the control to add members, then edit the shared event.");
   }
 
   function copyControls(cut = false) {
@@ -429,6 +458,11 @@ function renderLuaStudio(win) {
     for (const item of designerClipboard) {
       const name = luaFreeName(luaControlTypes[item.type].prefix, formObjectNames());
       const control = {...JSON.parse(JSON.stringify(item)), name};
+      if (control.arrayName && !arrayNameValid(control.arrayName, control)) {
+        control.arrayName = "";
+        control.arrayIndex = 0;
+      }
+      ensureArrayIndex(control);
       control.width = Math.min(control.width, form.width);
       control.height = Math.min(control.height, form.height);
       control.x = clamp(item.x - left + 12, 0, form.width - control.width);
@@ -453,9 +487,11 @@ function renderLuaStudio(win) {
       const added = [];
       for (const control of group) {
         const name = luaFreeName(luaControlTypes[control.type].prefix, formObjectNames());
-        form.controls.push({...control, name, items: control.items.slice(),
+        const duplicate = {...control, name, items: control.items.slice(),
           x: Math.min(form.width - control.width, control.x + 12),
-          y: Math.min(form.height - control.height, control.y + 12)});
+          y: Math.min(form.height - control.height, control.y + 12)};
+        ensureArrayIndex(duplicate);
+        form.controls.push(duplicate);
         added.push(name);
       }
       selected = added[0];
@@ -794,6 +830,37 @@ function renderLuaStudio(win) {
         }));
       } else field(luaTextTypes.includes(current.type) ? "Text" : "Caption", current.text,
         current.type === "multiline" ? "area" : "text", value => { current.text = value; }, 500);
+      // VB6-style control arrays retain a stable physical ID but share event code
+      // through (Array name, Index). Existing single controls stay unchanged.
+      field("Array name", current.arrayName || "", "text", value => {
+        value = value.trim();
+        if (!arrayNameValid(value, current)) {
+          textStatus("Choose a unique array name. Members must use the same control type.");
+          return current.arrayName || "";
+        }
+        if (value !== current.arrayName) {
+          current.arrayName = value;
+          current.arrayIndex = 0;
+          ensureArrayIndex(current);
+          // Reveal/hide the Index field immediately after editing Array name.
+          setTimeout(redrawProperties, 0);
+        }
+        return current.arrayName;
+      }, 32, true);
+      if (current.arrayName) {
+        field("Index (0–255)", current.arrayIndex, "number", value => {
+          if (!Number.isInteger(value) || value < 0 || value > 255 ||
+              form.controls.some(peer => peer !== current && peer.arrayName === current.arrayName &&
+                peer.arrayIndex === value)) {
+            textStatus("This array needs an unused index from 0 to 255.");
+            return current.arrayIndex;
+          }
+          current.arrayIndex = value;
+          return value;
+        }, null, true);
+        buttons.append(toolbarButton("Edit " + current.arrayName + "_" + (luaEventsForType(current.type)[0] || "Click"),
+          () => editHandler(current.arrayName + "_" + (luaEventsForType(current.type)[0] || "Click"))));
+      } else buttons.append(toolbarButton("Create Control Array", createArray));
       number("Left", current, "x", 0, () => form.width - current.width);
       number("Top", current, "y", 0, () => form.height - current.height);
       number("Width", current, "width", 20, () => form.width - current.x);
@@ -810,7 +877,7 @@ function renderLuaStudio(win) {
         number("Tab order", current, "tabIndex", 0, () => 99);
       }
       const event = luaEventsForType(current.type)[0];
-      if (event) buttons.append(toolbarButton(current.name + "_" + event, () => editHandler(current.name + "_" + event)));
+      if (event && !current.arrayName) buttons.append(toolbarButton(current.name + "_" + event, () => editHandler(current.name + "_" + event)));
       buttons.append(toolbarButton("Delete Control", deleteControl));
     }
     inspector.replaceChildren(element("div", "lua-pane-title", "Properties"), entries, buttons);
@@ -831,13 +898,14 @@ function renderLuaStudio(win) {
       objects.hidden = eventKinds.hidden = openEvent.hidden = true;
       return;
     }
-    const all = ["Form", ...form.controls.map(item => item.name), ...luaMenuCommands(form).map(item => item.name)];
+    const all = ["Form", ...new Set(form.controls.map(item => item.arrayName || item.name)),
+      ...luaMenuCommands(form).map(item => item.name)];
     const split = method.lastIndexOf("_");
     const wanted = split > 0 ? method.slice(0, split) : "Form";
     const chosen = all.includes(wanted) ? wanted : "Form";
     objects.replaceChildren(...all.map(item => new Option(item, item)));
     objects.value = chosen;
-    const control = form.controls.find(item => item.name === chosen);
+    const control = form.controls.find(item => (item.arrayName || item.name) === chosen);
     const events = chosen === "Form" ? luaFormEvents : control ? luaEventsForType(control.type) : ["Click"];
     const wantedEvent = split > 0 ? method.slice(split + 1) : "";
     eventKinds.replaceChildren(...events.map(event => new Option(event, event)));
@@ -860,8 +928,11 @@ function renderLuaStudio(win) {
       if (cursor < 0) cursor = code.value.length;
       else cursor++;
     } else {
-      const signature = name.endsWith("_Change") ? "value" :
-        /_(DblClick|MouseDown|MouseUp|KeyDown|KeyUp)$/.test(name) ? "event" : "";
+      const split = name.lastIndexOf("_");
+      const subject = name.slice(0, split);
+      const event = name.slice(split + 1);
+      const member = form.controls.find(control => control.arrayName === subject || control.name === subject);
+      const signature = luaHandlerSignature(member, event);
       const stub = "function " + name + "(" + signature + ")\n  \nend\n";
       const leading = code.value.trimEnd();
       const result = (leading ? leading + "\n\n" : "") + stub;
@@ -1221,13 +1292,16 @@ function renderLuaStudio(win) {
     ["Cut Controls", "", () => copyControls(true)],
     ["Copy Controls", "", () => copyControls()],
     ["Paste Controls", "", pasteControls],
-    ["Delete Controls", "", deleteControl]
+    ["Delete Controls", "", deleteControl],
+    ["Create Control Array", "", createArray]
   ]);
   const examples = windowMenu("Examples", [
     ["Click Counter", "calculator", () => switchProject(luaExample("counter"))],
     ["Hello Form", "lua", () => switchProject(luaExample("greeter"))],
     ["Event Playground", "lua", () => switchProject(luaExample("events"))],
-    ["Two-Form Project", "lua", () => switchProject(luaTwoFormExample())]
+    ["Two-Form Project", "lua", () => switchProject(luaTwoFormExample())],
+    ["Control Arrays", "lua", () => switchProject(luaControlArrayExample())],
+    ["Modal Dialog", "lua", () => switchProject(luaModalExample())]
   ]);
   const help = windowMenu("Help", [
     ["Lua form events", "lua", () => showLuaHelp()],
@@ -1498,7 +1572,10 @@ function showLuaHelp() {
       "Use print() for Immediate output and ui.message() for a message. The Code pane has VB6-style Object and Event selectors. " +
       "Change(value) receives the changed value. KeyDown(event), MouseDown(event), and DblClick(event) receive " +
       "an event table with key, code, x, y, button, shift, ctrl, and alt where applicable. " +
-      "Use Edit for designer Undo, Redo, Copy, and Paste. Press Run to test your form.",
+      "Use Edit for designer Undo, Redo, Copy, and Paste. Control arrays share one handler: " +
+      "Buttons_Click(index, event). Use ui.getAt(array, index, property) or " +
+      "ui.setAt(array, index, property, value). ui.showModal(form) displays a modal window " +
+      "without blocking Lua execution. Press Run to test your form.",
     accept: "OK", onAccept: () => {}});
 }
 
@@ -1518,6 +1595,10 @@ function showLuaBrowser(studio) {
     ["ui.show(form)", "Show a named form. Form_Load runs on first show and Form_Activate runs on each show."],
     ["ui.hide(form)", "Hide a form and preserve its Lua state. Omit the name for the current form."],
     ["ui.unload(form)", "Call Form_Unload and reset the form. Omit the name for the current form."],
+    ["ui.getAt(array, index, property, form)", "Read one member of a control array. Omit property to read its main value; form is optional."],
+    ["ui.setAt(array, index, property, value, form)", "Set one indexed control member. For example, ui.setAt('Buttons', 0, 'text', 'Go')."],
+    ["ui.showModal(form)", "Show a form and prevent input to other forms in this Lua project until the modal is hidden or unloaded. Non-blocking for Lua scripts."],
+    ["Control arrays", "Select a control and choose Create Control Array. Duplicate it for new indexes. Use shared handlers, e.g. Buttons_Click(index, event)."],
     ["ui.message(text)", "Show a message in the preview and log it to Immediate."],
     ["*_Change(value)", "Changed text, checkbox, selection or scrollbar. First argument is the new value."],
     ["*_KeyDown(event)", "Keyboard event table: key, code, shift, ctrl, alt."],

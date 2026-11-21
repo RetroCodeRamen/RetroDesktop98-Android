@@ -76,3 +76,72 @@ assert.equal(last.updates.Text1, 'abc');
 evaluate('host.stop()');
 
 console.log('Lua Studio model, input event coalescing, migration, and editor hooks: PASS');
+
+// Phase 2: Control arrays add an optional shared handler without losing the
+// stable per-instance object names used by existing projects and ui.get/ui.set.
+const arrayProject = copy(evaluate('luaProject(luaControlArrayExample())'));
+assert.equal(arrayProject.version, 2);
+assert.deepEqual(arrayProject.forms[0].controls.slice(0, 3).map(c => [c.name,c.arrayName,c.arrayIndex]),
+  [['Button1','Buttons',0],['Button2','Buttons',1],['Button3','Buttons',2]]);
+assert.equal(arrayProject.forms[0].controls[3].arrayName, '');
+assert.deepEqual(copy(evaluate(`luaProject(${JSON.stringify(arrayProject)})`)), arrayProject);
+const sig = entry => evaluate(`luaHandlerSignature(${JSON.stringify(entry)}, "Click")`);
+assert.equal(sig({arrayName:'Buttons'}), 'index, event');
+assert.equal(sig({arrayName:''}), 'event');
+assert.equal(evaluate('luaHandlerSignature({arrayName:"Buttons"}, "Change")'), 'index, value');
+assert.equal(evaluate('luaHandlerSignature({arrayName:"Buttons"}, "Timer")'), 'index');
+assert.equal(evaluate('luaHandlerSignature(null, "Click")'), 'event');
+function projectReject(mutator) {
+  const target = copy(arrayProject);
+  mutator(target.forms[0].controls);
+  context.toValidate = target;
+  assert.throws(() => evaluate('luaProject(toValidate)'));
+}
+projectReject(controls => { controls[1].arrayIndex = controls[0].arrayIndex; });
+projectReject(controls => { controls[1].type = 'label'; });
+projectReject(controls => { controls[1].arrayIndex = 256; });
+projectReject(controls => { controls[1].arrayIndex = -1; });
+projectReject(controls => { controls[1].arrayIndex = 0.1; });
+projectReject(controls => { controls[1].arrayName = 'Button1'; });
+projectReject(controls => { controls[1].arrayName = 'Form'; });
+projectReject(controls => { controls[1].arrayName = 'bad name'; });
+const single = copy(evaluate('luaProject(luaExample("counter"))'));
+assert.equal(single.forms[0].controls[0].arrayName, '');
+assert.equal(single.forms[0].controls[0].arrayIndex, 0);
+const modal = copy(evaluate('luaProject(luaModalExample())'));
+assert.equal(modal.forms.length, 2);
+assert.match(modal.forms[0].code, /ui\.showModal\("SettingsForm"\)/);
+assert.match(modal.forms[1].code, /ui\.hide\(\)/);
+const javaRuntime = fs.readFileSync(path.join(__dirname, '../app/src/main/java/com/retrodesktop/launcher/LuaStudioRuntime.java'),'utf8');
+assert.match(javaRuntime, /ui\.set\("getAt", new VarArgFunction/);
+assert.match(javaRuntime, /ui\.set\("setAt", new VarArgFunction/);
+assert.match(javaRuntime, /invokeArray\(control\.arrayName \+ "_" \+ action, control\.arrayIndex, value\)/);
+assert.match(javaRuntime, /modalStack\.peekLast\(\) != receiver/);
+assert.match(javaRuntime, /"showModal"/);
+
+// Phase 2 window policy: a modal form disables background forms until hidden.
+context.modalProject = modal;
+context.modalHost = evaluate('launchLuaProject(modalProject, {})');
+const started = calls.length;
+evaluate('modalHost.start()');
+const modalSession = calls[started].session;
+context.replyModal = {session:modalSession,output:[],patches:{},navigation:[]};
+evaluate('modalHost.reply(replyModal)');
+const mainWin = opened.at(-1);
+mainWin.options.sendEvent('MainForm','OpenDialog','Click');
+assert.equal(calls.at(-1).action, 'event');
+context.replyModal.navigation = [{form:'SettingsForm',action:'modal'}];
+evaluate('modalHost.reply(replyModal)');
+const modalWin = opened.at(-1);
+const afterOpen = calls.length;
+mainWin.options.sendEvent('MainForm','OpenDialog','Click');
+assert.equal(calls.length, afterOpen, 'background form blocked while modal');
+modalWin.options.sendEvent('SettingsForm','Done','Click');
+assert.equal(calls.length, afterOpen+1, 'modal form still accepts input');
+context.replyModal.navigation = [{form:'SettingsForm',action:'hide'}];
+evaluate('modalHost.reply(replyModal)');
+mainWin.options.sendEvent('MainForm','OpenDialog','Click');
+assert.equal(calls.length, afterOpen+2, 'background form unblocked after hide');
+evaluate('modalHost.stop()');
+
+console.log('Phase 2 control arrays, model migration, runtime API markers, and modal gating: PASS');

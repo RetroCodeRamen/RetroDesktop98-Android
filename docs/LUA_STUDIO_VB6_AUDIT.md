@@ -1,13 +1,13 @@
 # Lua Studio ↔ Visual Basic 6 — feature audit
 
-> **Audit baseline:** Retro Desktop 98 v2.7 source, 2026-11-21. **Phase 1** below describes code on the `feature/lua-studio-vb6-phase1` branch, not a released Android APK. **VB6-inspired** means similar workflow, **not** the Visual Basic 6 language or Windows binary compatibility.
+> **Audit baseline:** Retro Desktop 98 v2.7 source, 2026-11-21. **Phase 1 and Phase 2** below describe experimental code on the `feature/lua-studio-vb6-phase1` branch, not a released Android APK. **VB6-inspired** means similar workflow, **not** the Visual Basic 6 language or Windows binary compatibility.
 
 VB6 shipped a full IDE, programming language, Windows runtime, developer tools and COM/ActiveX ecosystem. Lua Studio currently uses sandboxed LuaJ, a HTML/CSS form renderer and a small JSON project model, so it cannot honestly be called “full VB6” until distinct layers are implemented and tested. No existing `.vbp`, `.frm`, `.bas`, `.cls`, `.ocx`, or compiled VB6 `.exe` is executed by this project.
 
 ## Coverage legend
 
 - **✓** Implemented on the v2.7 source baseline.
-- **+** Implemented or expanded on this review branch; needs Android device testing.
+- **+** Implemented or expanded on this development branch; needs Android device testing.
 - **◐** Partial / differs substantially from VB6.
 - **—** Not implemented.
 - **N/A** Requires Windows-native interoperability; emulate concepts instead of claiming binary support.
@@ -35,10 +35,10 @@ VB6 shipped a full IDE, programming language, Windows runtime, developer tools a
 | Event arguments | + | `event.key`, `event.code`, `event.x`, `event.y`, `event.button`, `event.shift`, `event.ctrl`, `event.alt`. Change handlers keep `value`. |
 | Standard intrinsic controls | ◐ | Label, CommandButton, text/multiline text, CheckBox, OptionButton, ComboBox, ListBox, Frame, H/V ScrollBar, Timer, Image, PictureBox, Shape, Line; missing DriveListBox, DirListBox, FileListBox, intrinsic Data control and OLE Container. |
 | Windows common controls (`MSCOMCTL.OCX`) | ◐ | ProgressBar present. Missing full TreeView, ListView, TabStrip/SSTab, toolbar, status bar, image list, slider and more. |
-| Control arrays (shared name + Index) | — | Current control names must be unique, one object per name; design schema and event dispatch need a change. |
+| Control arrays (shared name + Index) | + | Static array groups now use an optional `arrayName`/`arrayIndex` while retaining unique internal control IDs; indexed `ui.getAt`/`ui.setAt` and `ArrayName_Click(index,event)` handlers. Runtime dynamic Load/Unload not supported. |
 | Dynamic controls / Load/Unload | — | Designer produces static controls; runtime cannot add controls dynamically. |
 | MDI parent/child | — | Runtime supports **multiple separate forms**, not an MDI parent workspace. |
-| Form modal/modeless display | ◐ | Multiple visible forms, `ui.show/hide/unload`; no modal lifecycle or Show vbModal. |
+| Form modal/modeless display | + | `ui.showModal(form)` disables other forms in the same Lua session, allows nested dialogs, and restores input after dismissal. It is asynchronous, unlike VB6 blocking `Show vbModal`. |
 | Common Dialog / MsgBox / InputBox | ◐ | `ui.message` sends a message to the preview/log. No blocking return or desktop file/color/font dialog API. |
 | Class modules / interfaces / WithEvents | — | Shared modules exist; no class/module object model or typed event declarations. |
 | File I/O | — | Project persistence is handled by the IDE; scripts have no sandboxed file API. |
@@ -73,11 +73,11 @@ VB6 shipped a full IDE, programming language, Windows runtime, developer tools a
 
 ### Phase 2 — Build real applications
 
-1. Implement **control arrays** using a stable internal control ID, `(name, index)` routing and migration tests, instead of abusing duplicate names.
-2. Add proper form lifecycles: **Show modal**, Load/Unload, QueryUnload, Resize, Form KeyPreview, focus management.
-3. Implement a permission-bounded `workspace` module (read/write/list under `C:\Lua Projects`), plus native file picker services with asynchronous continuation semantics.
-4. Build **CommonDialog**, **MsgBox**, **InputBox**, dialogs and dynamic controls; asynchronous interaction must not block the UI thread.
-5. Implement a richer intrinsic/common-control gallery, container ownership/z-order, tree/list/grid/tab/toolbar/status controls, and properties/events.
+1. [x] Implement **static control arrays** using stable internal control names, shared `(arrayName, index)` routing, indexed APIs, and migration tests. Dynamic loading remains open.
+2. [x] Add **asynchronous modal forms** with nested modal input gating in both preview and LuaJ runtime. QueryUnload, Resize, Form KeyPreview and focus-management parity remain open.
+3. [ ] Implement a permission-bounded `workspace` module (read/write/list under `C:\Lua Projects`), plus native file picker services with asynchronous continuation semantics.
+4. [ ] Build **CommonDialog**, **MsgBox**, **InputBox**, dialogs and dynamic controls; asynchronous interaction must not block the UI thread.
+5. [ ] Implement a richer intrinsic/common-control gallery, container ownership/z-order, tree/list/grid/tab/toolbar/status controls, and properties/events.
 
 ### Phase 3 — VB6-quality development tools
 
@@ -92,7 +92,18 @@ VB6 shipped a full IDE, programming language, Windows runtime, developer tools a
 
 Avoid advertising original `.frm/.vbp` import or binary `.ocx/.exe` execution. A *translator* from a documented subset of `.frm` form layout to Lua Studio JSON could be built as a separate import tool, with unsupported properties reported explicitly. This is not the same as a VB6 interpreter.
 
-## Acceptance checklist
+## Phase 2 acceptance checklist
+
+- [x] `node tests/lua-studio-compat.test.js` covers project arrays, event signatures, malformed index rejection, migration, and modal preview input gating.
+- [x] `node tests/dosbox-audio.test.js` remains passing.
+- [x] `node --check` passes the changed JavaScript.
+- [ ] GitHub Actions must compile and test the Phase 2 Android app and LuaJ source.
+- [ ] Verify on a real Android device that array handlers actually fire in LuaJ, indexed API patches update the expected control, and modal dismissal restores focus.
+- [ ] Verify the already-installed v2.7 update signing key before shipping a public APK.
+
+For API examples and design details, see [Phase 2 guide](LUA_STUDIO_PHASE2.md).
+
+## Original Phase 1 acceptance checklist
 
 - [x] `node tests/lua-studio-compat.test.js` (source model, events, migration examples)
 - [x] `node --check` on changed JavaScript

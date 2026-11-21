@@ -39,6 +39,7 @@ final class LuaStudioRuntime {
     private JSONObject patches;
     private JSONArray presentation;
     private final ArrayDeque<Navigation> requests = new ArrayDeque<>();
+    private final ArrayDeque<Form> modalStack = new ArrayDeque<>();
     private String message;
     private int patchCount;
 
@@ -80,6 +81,7 @@ final class LuaStudioRuntime {
 
     JSONObject start(String initialSource) throws JSONException {
         begin();
+        modalStack.clear();
         try {
             current = startup;
             moduleEnv = setup(null);
@@ -103,7 +105,8 @@ final class LuaStudioRuntime {
         begin();
         try {
             Form receiver = forms.get(input.optString("form", startup.name));
-            if (receiver == null || !receiver.open) return result("", false);
+            if (receiver == null || !receiver.open ||
+                    (!modalStack.isEmpty() && modalStack.peekLast() != receiver)) return result("", false);
             current = receiver;
             JSONObject updates = input.optJSONObject("updates");
             if (updates != null) applyInputs(updates);
@@ -117,8 +120,10 @@ final class LuaStudioRuntime {
             } else if (name.isEmpty() && isFormEvent(action)) {
                 invoke("Form_" + action, eventDetails(input));
             } else if (control != null && control.get("enabled").toboolean() && control.fires(action)) {
-                invoke(name + "_" + action, "Change".equals(action) && control.inputProperty() != null
-                        ? control.get(control.inputProperty()) : eventDetails(input));
+                LuaValue value = "Change".equals(action) && control.inputProperty() != null
+                        ? control.get(control.inputProperty()) : eventDetails(input);
+                if (!control.arrayName.isEmpty()) invokeArray(control.arrayName + "_" + action, control.arrayIndex, value);
+                else invoke(name + "_" + action, value);
             }
             navigate();
             return result("", false);
@@ -186,14 +191,20 @@ final class LuaStudioRuntime {
             Form target = operation.form;
             current = target;
             switch (operation.action) {
+                case "modal":
                 case "show":
                     if (target.scope == null) load(target, source(target.definition.getString("code")));
                     target.open = true;
-                    presentation.put(change("show", target.name));
+                    if ("modal".equals(operation.action)) {
+                        modalStack.remove(target);
+                        modalStack.addLast(target);
+                    }
+                    presentation.put(change(operation.action, target.name));
                     invoke("Form_Activate", LuaValue.NIL);
                     break;
                 case "hide":
                     target.open = false;
+                    modalStack.remove(target);
                     presentation.put(change("hide", target.name));
                     break;
                 case "unload":
@@ -201,6 +212,7 @@ final class LuaStudioRuntime {
                         if (target.scope != null) invoke("Form_Unload", LuaValue.NIL);
                     } finally {
                         target.open = false;
+                        modalStack.remove(target);
                         target.scope = null;
                         target.reset();
                         patches.remove(target.name);
@@ -253,6 +265,29 @@ final class LuaStudioRuntime {
                 return control.get(args.optjstring(2, control.defaultProperty()));
             }
         });
+        ui.set("getAt", new VarArgFunction() {
+            @Override public Varargs invoke(Varargs args) {
+                Form form = lookup(args.arg(4));
+                Control control = form.arrayControl(args.checkjstring(1), args.checkint(2));
+                return control.get(args.optjstring(3, control.defaultProperty()));
+            }
+        });
+        ui.set("setAt", new VarArgFunction() {
+            @Override public Varargs invoke(Varargs args) {
+                Form form = lookup(args.arg(5));
+                String array = args.checkjstring(1);
+                int index = args.checkint(2);
+                Control control = form.arrayControl(array, index);
+                String property = args.checkjstring(3);
+                control.set(property, args.arg(4));
+                String physicalName = form.arrayPhysicalName(array, index);
+                patch(form, physicalName, property, control.get(property));
+                if ("option".equals(control.type) && "checked".equals(property) && control.get("checked").toboolean()) {
+                    uncheckPeers(form, control);
+                }
+                return LuaValue.NONE;
+            }
+        });
         ui.set("set", new VarArgFunction() {
             @Override public Varargs invoke(Varargs args) {
                 Form form = lookup(args.arg(4));
@@ -267,11 +302,13 @@ final class LuaStudioRuntime {
                 return LuaValue.NIL;
             }
         });
-        for (String action : new String[]{"show", "hide", "unload"}) {
+        // showModal is asynchronous: it disables other Lua form windows, but does
+        // not synchronously block the isolated Lua event handler like VB6 vbModal.
+        for (String action : new String[]{"show", "showModal", "hide", "unload"}) {
             ui.set(action, new OneArgFunction() {
                 @Override public LuaValue call(LuaValue supplied) {
                     if (requests.size() >= 20) throw new LuaStudioDebugger.Limit("Lua issued too many form commands.");
-                    requests.add(new Navigation(action, lookup(supplied)));
+                    requests.add(new Navigation("showModal".equals(action) ? "modal" : action, lookup(supplied)));
                     return LuaValue.NIL;
                 }
             });
@@ -347,6 +384,15 @@ final class LuaStudioRuntime {
         patchCount = 0;
     }
 
+    private void invokeArray(String name, int index, LuaValue value) {
+        LuaValue handler = current.scope.rawget(name);
+        if (handler.isnil()) return;
+        if (!handler.isfunction()) throw new LuaError(name + " must be a function.");
+        LuaValue first = LuaValue.valueOf(index);
+        if (value.isnil()) handler.call(first);
+        else handler.call(first, value);
+    }
+
     private void invoke(String name, LuaValue value) {
         LuaValue handler = current.scope.rawget(name);
         if (handler.isnil()) return;
@@ -407,6 +453,8 @@ final class LuaStudioRuntime {
         final JSONObject definition;
         final Map<String, Control> controls = new LinkedHashMap<>();
         final Set<String> menuItems = new HashSet<>();
+        final Map<String, Set<Integer>> arrayIndexes = new LinkedHashMap<>();
+        final Map<String, String> arrayTypes = new LinkedHashMap<>();
         Globals scope;
         boolean open;
 
@@ -434,6 +482,8 @@ final class LuaStudioRuntime {
 
         void reset() throws JSONException {
             controls.clear();
+            arrayIndexes.clear();
+            arrayTypes.clear();
             Set<String> radioGroups = new HashSet<>();
             JSONArray definitions = definition.getJSONArray("controls");
             if (definitions.length() > MAX_CONTROLS) throw new IllegalArgumentException("Too many controls.");
@@ -445,7 +495,31 @@ final class LuaStudioRuntime {
                     control.set("checked", LuaValue.FALSE);
                 }
                 if (controls.put(key, control) != null) throw new IllegalArgumentException("Duplicate control name.");
+                if (!control.arrayName.isEmpty()) {
+                    String previousType = arrayTypes.putIfAbsent(control.arrayName, control.type);
+                    if (previousType != null && !previousType.equals(control.type))
+                        throw new IllegalArgumentException("Control array mixes control types.");
+                    Set<Integer> members = arrayIndexes.computeIfAbsent(control.arrayName, ignored -> new HashSet<>());
+                    if (!members.add(control.arrayIndex)) throw new IllegalArgumentException("Duplicate control array index.");
+                }
             }
+            for (String arrayName : arrayIndexes.keySet()) {
+                if (controls.containsKey(arrayName)) throw new IllegalArgumentException("Control array shadows a control.");
+            }
+        }
+
+        String arrayPhysicalName(String arrayName, int index) {
+            if (arrayName.isEmpty() || !arrayIndexes.containsKey(arrayName))
+                throw new LuaError("Unknown control array.");
+            for (Map.Entry<String, Control> entry : controls.entrySet()) {
+                Control control = entry.getValue();
+                if (control.arrayName.equals(arrayName) && control.arrayIndex == index) return entry.getKey();
+            }
+            throw new LuaError("Unknown control array member.");
+        }
+
+        Control arrayControl(String name, int index) {
+            return control(arrayPhysicalName(name, index));
         }
 
         Control control(String name) {
@@ -458,6 +532,8 @@ final class LuaStudioRuntime {
     private static final class Control {
         final String type;
         final String group;
+        final String arrayName;
+        final int arrayIndex;
         private final Map<String, LuaValue> values = new LinkedHashMap<>();
         private final Set<String> choices = new HashSet<>();
         private final int min;
@@ -466,6 +542,10 @@ final class LuaStudioRuntime {
         Control(JSONObject definition) throws JSONException {
             type = definition.getString("type");
             group = shorten(definition.optString("group", "Group1"), 32);
+            arrayName = definition.optString("arrayName", "");
+            if (!arrayName.isEmpty()) identifier(arrayName);
+            arrayIndex = arrayName.isEmpty() ? 0 : definition.optInt("arrayIndex", -1);
+            if (arrayIndex < 0 || arrayIndex > 255) throw new IllegalArgumentException("Invalid array index.");
             if (!type.matches("label|button|text|multiline|check|option|combo|list|frame|hscroll|vscroll|progress|timer|shape|line|image|picture")) {
                 throw new IllegalArgumentException("Unknown control type.");
             }

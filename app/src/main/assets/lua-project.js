@@ -59,7 +59,8 @@ function luaColor(value, fallback) {
 }
 
 function luaControl(type, name, text, x, y, width, height) {
-  return {type, name, text, x, y, width, height, visible: true, enabled: type !== "timer",
+  return {type, name, text, x, y, width, height, arrayName: "", arrayIndex: 0,
+    visible: true, enabled: type !== "timer",
     checked: false, value: luaRangeTypes.includes(type) ? 0 : "", items: [],
     group: "Group1", tabStop: true, tabIndex: 0, min: 0, max: 100, interval: 1000, color: "#000080", shape: "rectangle", image: ""};
 }
@@ -111,11 +112,28 @@ function luaProject(value) {
     if (!Array.isArray(raw.controls) || raw.controls.length > 48 || !Array.isArray(raw.menus) ||
         raw.menus.length > 10) throw Error("The form has too many controls or menus.");
     const names = new Set();
+    const groups = new Map();
     form.controls = raw.controls.map(control => {
       if (!control || !Object.prototype.hasOwnProperty.call(luaControlTypes, control.type)) {
         throw Error("A form contains an unknown control.");
       }
       const id = useName(control.name, names);
+      const arrayName = control.arrayName == null || control.arrayName === "" ? "" : control.arrayName;
+      if (arrayName && (typeof arrayName !== "string" || !luaIdentifier.test(arrayName) || arrayName === "Form")) {
+        throw Error("A control array has an invalid name.");
+      }
+      const arrayIndex = arrayName ? control.arrayIndex : 0;
+      if (arrayName && (!Number.isInteger(arrayIndex) || arrayIndex < 0 || arrayIndex > 255)) {
+        throw Error("Control array indexes must be integers from 0 to 255.");
+      }
+      if (arrayName) {
+        const group = groups.get(arrayName) || {type: control.type, used: new Set()};
+        if (group.type !== control.type || group.used.has(arrayIndex)) {
+          throw Error("Array members need the same control type and distinct indexes.");
+        }
+        group.used.add(arrayIndex);
+        groups.set(arrayName, group);
+      }
       const width = luaWhole(control.width, 20, form.width);
       const height = luaWhole(control.height, 18, form.height);
       const items = Array.isArray(control.items) ?
@@ -125,7 +143,7 @@ function luaProject(value) {
       const image = luaText(control.image, 85001);
       return {...luaControl(control.type, id, luaText(control.text, 500),
         luaWhole(control.x, 0, form.width - width), luaWhole(control.y, 0, form.height - height), width, height),
-        items, checked: control.checked === true, enabled: control.enabled !== false, visible: control.visible !== false,
+        arrayName, arrayIndex, items, checked: control.checked === true, enabled: control.enabled !== false, visible: control.visible !== false,
         group: luaText(control.group, 32, "Group1") || "Group1", min, max, tabStop: control.tabStop !== false,
         tabIndex: luaWhole(control.tabIndex, 0, 99, 0),
         value: luaRangeTypes.includes(control.type) ? luaWhole(control.value, min, max, min) :
@@ -141,6 +159,10 @@ function luaProject(value) {
       if (!Array.isArray(menu.items) || menu.items.length > 14) throw Error("A menu has too many items.");
       return {...entry, items: menu.items.map(makeMenu)};
     });
+    // A shared handler name cannot shadow a concrete control or a menu handler.
+    for (const group of groups.keys()) {
+      if (names.has(group)) throw Error("A control array name conflicts with a control or menu.");
+    }
     return form;
   });
   const modules = value.modules.map(raw => ({name: useName(raw?.name, objectNames), code: source(raw.code)}));
@@ -165,4 +187,54 @@ function luaTwoFormExample() {
   return {format: luaProjectFormat, version: 2, name: "Two-Form Project", startup: "MainForm",
     forms: [main, settings], modules: [{name: "Module1",
       code: 'function labelText(message)\n  return "Status: " .. message\nend\n'}]};
+}
+
+// The control name remains a stable per-instance identifier. An optional arrayName
+// groups same-type controls for VB6-style shared event procedures, with arrayIndex.
+function luaArrayMembers(form, name) {
+  return form.controls.filter(control => control.arrayName === name)
+    .slice().sort((a, b) => a.arrayIndex - b.arrayIndex);
+}
+
+function luaArrayNextIndex(form, arrayName) {
+  const used = new Set(luaArrayMembers(form, arrayName).map(control => control.arrayIndex));
+  for (let index = 0; index <= 255; index++) if (!used.has(index)) return index;
+  throw Error("This array is full.");
+}
+
+function luaHandlerSignature(control, event) {
+  const tail = event === "Change" ? "value" :
+    ["Click", "DblClick", "MouseDown", "MouseUp", "KeyDown", "KeyUp"].includes(event) ? "event" : "";
+  return (control?.arrayName ? "index" + (tail ? ", " + tail : "") : tail);
+}
+
+function luaControlArrayExample() {
+  const form = luaNewForm("MainForm");
+  form.caption = "Control Arrays";
+  form.height = 224;
+  for (let index = 0; index < 3; index++) {
+    const control = luaControl("button", "Button" + (index + 1), "Button " + (index + 1),
+      14, 15 + index * 54, 124, 38);
+    control.arrayName = "Buttons";
+    control.arrayIndex = index;
+    form.controls.push(control);
+  }
+  form.controls.push(luaControl("label", "Result", "Tap a button", 150, 54, 130, 48));
+  form.code = 'function Buttons_Click(index, event)\n  ui.set("Result", "text", "Button index: " .. index)\nend\n';
+  return {format: luaProjectFormat, version: 2, name: "Control Arrays", startup: "MainForm",
+    forms: [form], modules: []};
+}
+
+function luaModalExample() {
+  const main = luaNewForm("MainForm");
+  main.caption = "Modal Dialog Demo";
+  main.controls.push(luaControl("button", "OpenDialog", "Open Settings", 25, 33, 160, 34));
+  main.code = 'function OpenDialog_Click()\n  ui.showModal("SettingsForm")\nend\n';
+  const dialog = luaNewForm("SettingsForm");
+  dialog.caption = "Settings (Modal)";
+  dialog.controls.push(luaControl("label", "Info", "Main window is disabled until you close this one.", 12, 14, 266, 61));
+  dialog.controls.push(luaControl("button", "Done", "OK", 95, 98, 110, 33));
+  dialog.code = 'function Done_Click()\n  ui.hide()\nend\n';
+  return {format: luaProjectFormat, version: 2, name: "Modal Dialog", startup: "MainForm",
+    forms: [main, dialog], modules: []};
 }

@@ -9,6 +9,10 @@ function launchLuaProject(project, callbacks) {
   const windows = new Map();
   const changes = new Map();
   const queue = [];
+  // Modal windows are managed per Lua session, not as global Android windows.
+  // Only the top modal form receives user input until it is hidden/unloaded.
+  const modalOrder = [];
+  const topModal = () => modalOrder.at(-1) || "";
   let busy = true;
   let ended = false;
   let paused = false;
@@ -23,7 +27,8 @@ function launchLuaProject(project, callbacks) {
   }
 
   function sendEvent(form, name, event, args = null) {
-    if (ended || (event === "Timer" && (paused || busy || !desktopVisible || document.hidden))) return;
+    if (ended || (topModal() && form !== topModal()) ||
+        (event === "Timer" && (paused || busy || !desktopVisible || document.hidden))) return;
     if (queue.length >= 32) {
       announce("Lua’s event queue is full.");
       return;
@@ -68,6 +73,8 @@ function launchLuaProject(project, callbacks) {
     const win = windows.get(form);
     if (!win) return;
     windows.delete(form);
+    const modalIndex = modalOrder.indexOf(form);
+    if (modalIndex >= 0) modalOrder.splice(modalIndex, 1);
     win.luaClosing = true;
     closeWindow(win.id);
   }
@@ -112,6 +119,11 @@ function launchLuaProject(project, callbacks) {
       if (!originals.has(key)) continue;
       presentation.delete(key);
       presentation.set(key, operation.action);
+      if (operation.action === "modal") {
+        const old = modalOrder.indexOf(key);
+        if (old >= 0) modalOrder.splice(old, 1);
+        modalOrder.push(key);
+      }
       if (operation.action === "hide" || operation.action === "unload") {
         hide(key);
         if (operation.action === "unload") {
@@ -138,11 +150,14 @@ function launchLuaProject(project, callbacks) {
       }
     }
     for (const [key, action] of presentation) {
-      if (action === "show") show(key);
+      if (action === "show" || action === "modal") show(key);
     }
     const status = result.error ? result.error.split("\n")[0] : result.message || "Running";
     if (result.message) announce("Lua: " + result.message);
-    for (const win of windows.values()) win.refreshLuaForm(false, status);
+    for (const win of windows.values()) {
+      const blockedByModal = !!topModal() && win.options.form.name !== topModal();
+      win.refreshLuaForm(blockedByModal, blockedByModal ? "A modal dialog is open" : status);
+    }
     if (!windows.size) stop();
     else dispatch();
   }
