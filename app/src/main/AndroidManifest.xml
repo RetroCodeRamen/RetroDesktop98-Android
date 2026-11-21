@@ -19,7 +19,7 @@
         android:enableOnBackInvokedCallback="true"
         android:extractNativeLibs="false"
         android:icon="@drawable/launcher_icon"
-        android:label="Retro Desktop 98 (Resizable)"
+        android:label="Retro Desktop 98 (Beta)"
         android:theme="@style/LauncherTheme"
         android:usesCleartextTraffic="true">
         <service
@@ -29,7 +29,7 @@
             android:isolatedProcess="true" />
         <provider
             android:name="com.retrodesktop.launcher.AttachmentProvider"
-            android:authorities="com.retrodesktop.launcher.resizable.attachments"
+            android:authorities="com.retrodesktop.launcher.resizable.beta.attachments"
             android:exported="false"
             android:grantUriPermissions="true" />
         <activity
@@ -51,7 +51,7 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="true"
             android:launchMode="singleTask"
-            android:taskAffinity="com.retrodesktop.launcher.resizable.preview"
+            android:taskAffinity="com.retrodesktop.launcher.resizable.beta.preview"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
