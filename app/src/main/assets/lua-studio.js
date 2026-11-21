@@ -309,6 +309,20 @@ function renderLuaStudio(win) {
   const inspector = element("div", "lua-inspector sunken");
   const editor = element("div", "lua-editor");
   const code = element("textarea", "lua-code-input");
+  const codeStack = element("div", "lua-code-stack");
+  const highlightViewport = element("div", "lua-highlight-viewport");
+  const highlight = element("pre", "lua-highlight");
+  highlight.setAttribute("aria-hidden", "true");
+  highlightViewport.setAttribute("aria-hidden", "true");
+  highlightViewport.append(highlight);
+  const suggestionBar = element("div", "lua-suggestions");
+  suggestionBar.hidden = true;
+  suggestionBar.setAttribute("role", "listbox");
+  suggestionBar.setAttribute("aria-label", "Lua completion suggestions");
+  const syntaxReport = element("div", "lua-syntax-report");
+  syntaxReport.hidden = true;
+  const procedures = element("select", "text-entry lua-procedure-list");
+  procedures.setAttribute("aria-label", "Jump to function");
   const gutters = element("pre", "lua-gutters", "1");
   const actions = element("div", "app-toolbar lua-code-actions");
   const objects = element("select", "text-entry");
@@ -404,7 +418,63 @@ function renderLuaStudio(win) {
       textStatus("Line positions changed. Set the affected breakpoints again.");
     }
     updateGutters();
+    updateHighlight();
+    refreshProcedures(false);
+    syntaxReport.hidden = true;
     modified("typing");
+  }
+
+  function updateHighlight() {
+    if (!highlightViewport.hidden) {
+      highlight.innerHTML = luaHighlightSource(code.value) + "\n";
+      highlight.style.transform = `translate(${-code.scrollLeft}px, ${-code.scrollTop}px)`;
+    }
+  }
+
+  function refreshProcedures(reset = false) {
+    const previous = reset ? "" : procedures.value;
+    const found = luaSourceFunctions(code.value);
+    procedures.replaceChildren(new Option("Functions…", ""), ...found.map(item =>
+      new Option(item.name + " · line " + item.line, String(item.offset))));
+    if (previous && [...procedures.options].some(item => item.value === previous)) procedures.value = previous;
+  }
+
+  function showSourceDiagnostics() {
+    const findings = luaSourceDiagnostics(code.value);
+    syntaxReport.hidden = false;
+    syntaxReport.replaceChildren();
+    if (!findings.length) {
+      syntaxReport.append(element("span", "", "No lexical errors detected. Run the project to check Lua syntax and runtime behavior."));
+      return;
+    }
+    for (const problem of findings) {
+      const jump = toolbarButton("Line " + problem.line + " · " + problem.message, () => gotoLine(problem.line));
+      syntaxReport.append(jump);
+    }
+  }
+
+  function showCompletion() {
+    const names = project.forms.flatMap(entry => luaSourceFunctions(entry.code).map(item=>item.name))
+      .concat(project.modules.flatMap(entry => luaSourceFunctions(entry.code).map(item=>item.name)));
+    const result = luaCompleteAt(code.value, code.selectionStart, names);
+    suggestionBar.replaceChildren();
+    if (!result.items.length) { suggestionBar.hidden = true; textStatus("No matching completions."); return; }
+    suggestionBar.hidden = false;
+    result.items.forEach(({label,insert,detail}) => {
+      const option = toolbarButton(label + (detail ? " · " + detail : ""), () => {
+        // A completion is applied only to the original token, not arbitrary selected source.
+        code.focus();
+        const start = result.start;
+        const end = code.selectionStart;
+        if (end >= start && code.value.length - (end - start) + insert.length <= luaMaxCode) {
+          code.setRangeText(insert, start, end, "end");
+          codeChanged();
+        }
+        suggestionBar.hidden = true;
+      });
+      option.setAttribute("role", "option");
+      suggestionBar.append(option);
+    });
   }
 
   function updateGutters() {
@@ -1082,6 +1152,10 @@ function renderLuaStudio(win) {
     code.setSelectionRange(0, 0);
     caretOffset = 0;
     updateGutters();
+    updateHighlight();
+    refreshProcedures(true);
+    suggestionBar.hidden = true;
+    syntaxReport.hidden = true;
     redrawMethods();
   }
 
@@ -1115,9 +1189,12 @@ function renderLuaStudio(win) {
     choices.addEventListener("change", () => { project.startup = choices.value; redrawProject(); modified(); });
     startup.append(choices);
     head.append(toolbarButton("Add Form", () => addProjectItem("form")),
-      toolbarButton("Add Module", () => addProjectItem("module")), startup);
+      toolbarButton("Add Module", () => addProjectItem("module")),
+      toolbarButton("Add Class", () => addProjectItem("class")), startup);
     const rows = element("div", "explorer lua-project-rows");
-    const sections = [["Forms", project.forms, openForm], ["Modules", project.modules, openModule]];
+    const sections = [["Forms", project.forms, openForm],
+      ["Modules", project.modules.filter(item => item.kind !== "class"), openModule],
+      ["Classes", project.modules.filter(item => item.kind === "class"), openModule]];
     for (const [label, entries, open] of sections) {
       rows.append(element("div", "program-group", label));
       for (const item of entries) {
@@ -1165,8 +1242,10 @@ function renderLuaStudio(win) {
   function addProjectItem(kind) {
     const list = kind === "form" ? project.forms : project.modules;
     if (list.length >= (kind === "form" ? 8 : 12)) { textStatus("The project has reached its file limit."); return; }
-    const name = luaFreeName(kind === "form" ? "Form" : "Module", [...project.forms, ...project.modules].map(item => item.name));
-    const item = kind === "form" ? luaNewForm(name) : {name, code: "-- Functions declared here are available to the forms.\n"};
+    const name = luaFreeName(kind === "form" ? "Form" : kind === "class" ? "Class" : "Module",
+      [...project.forms, ...project.modules].map(item => item.name));
+    const item = kind === "form" ? luaNewForm(name) : {name, kind,
+      code: kind === "class" ? luaClassTemplate(name) : "-- Functions declared here are available to the forms.\n"};
     list.push(item);
     modified();
     if (kind === "form") openForm(item);
@@ -1352,29 +1431,49 @@ function renderLuaStudio(win) {
     native.desktopFile(action, fileRequest, exporting ? JSON.stringify({name: sourceName(), code: sourceDoc().code}) : snapshot);
   }
 
-  function publishProgram() {
-    if (!native?.publishLuaProgram) { textStatus("Publishing is available in the Android launcher."); return; }
+  function publishAs(name, metadata = project.meta) {
+    if (!native?.publishLuaProgram) { textStatus("Publishing requires the Android launcher."); return; }
     refreshLuaPrograms();
     const original = luaPrograms.get(publishedId);
-    nameDialog(original ? "Update Lua Program" : "Add to Programs", project.name, name => {
-      try {
-        const copy = luaProject({...project, name});
-        const result = JSON.parse(native.publishLuaProgram(original?.id || "", JSON.stringify(copy)));
-        if (result.error || !isLuaProgramId(result.id)) throw Error(result.error || "Could not publish the program.");
-        project.name = copy.name;
-        publishedId = result.id;
-        backup = JSON.stringify(project);
-        persist();
-        redrawDesign();
-        if (pane === "project") redrawProject();
-        refreshLuaPrograms();
-        const message = (original ? "Program updated in Start → Programs." : "Added to Start → Programs → Lua Programs.");
-        textStatus(message);
-        announce(message);
-      } catch (error) {
-        textStatus(error.message);
-        announce(error.message);
-      }
+    try {
+      const copy = luaProject({...project, name, meta: metadata});
+      const result = JSON.parse(native.publishLuaProgram(original?.id || "", JSON.stringify(copy)));
+      if (result.error || !isLuaProgramId(result.id)) throw Error(result.error || "Could not publish the program.");
+      project.name = copy.name;
+      project.meta = copy.meta;
+      publishedId = result.id;
+      backup = JSON.stringify(project);
+      persist();
+      redrawDesign();
+      if (pane === "project") redrawProject();
+      refreshLuaPrograms();
+      const message = (original ? "Program updated in Start → Programs." : "Added to Start → Programs → Lua Programs.");
+      textStatus(message);
+      announce(message);
+    } catch (error) {
+      textStatus(error.message);
+      announce(error.message);
+    }
+  }
+
+  function publishProgram() {
+    const original = luaPrograms.get(publishedId);
+    nameDialog(original ? "Update Lua Program" : "Add to Programs", project.name,
+      name => publishAs(name));
+  }
+
+  // "Make Application" creates a versioned Start-menu Lua package, NOT an APK.
+  // Saved project format remains version 2 and older exports remain readable.
+  function makeApplication() {
+    if (!native?.publishLuaProgram) { textStatus("Publishing requires the Android launcher."); return; }
+    nameDialog("Make Application · Name", project.name, name => {
+      nameDialog("Make Application · Version", project.meta?.version || "1.0.0", version => {
+        if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(version)) {
+          textStatus("Version should look like 1.0.0."); return;
+        }
+        nameDialog("Make Application · Description", project.meta?.description || "Lua Studio application",
+          description => publishAs(name, {version, description: description.slice(0,160)}), 160);
+      }, 24);
     });
   }
 
@@ -1407,6 +1506,7 @@ function renderLuaStudio(win) {
     ["Open Project…", "folder", () => openFileLocation("projects")],
     ["Import Project…", "folder", () => native?.desktopFile?.("open-lua-project", "", "")],
     ["Save Project", "paper", () => saveFile("save-lua-project")],
+    ["Make Application…", "programs", makeApplication],
     ["Add to Programs…", "programs", publishProgram],
     ["Import Lua Source…", "folder", () => native?.desktopFile?.("import-lua-source", "", "")],
     ["Export Lua Source", "paper", () => saveFile("export-lua")],
@@ -1431,7 +1531,13 @@ function renderLuaStudio(win) {
     ["Modal Dialog", "lua", () => switchProject(luaModalExample())],
     ["Common Controls", "lua", () => switchProject(luaCommonControlsExample())],
     ["Common Dialogs", "lua", () => switchProject(luaDialogsExample())],
-    ["Pocket Notepad (Files)", "lua", () => switchProject(luaFilesExample())]
+    ["Pocket Notepad (Files)", "lua", () => switchProject(luaFilesExample())],
+    ["Reusable Class Demo", "lua", () => switchProject(luaClassExample())]
+  ]);
+  const sourceTools = windowMenu("Source", [
+    ["Complete Symbol…", "", () => { setPane("code"); showCompletion(); }],
+    ["Check Lexical Errors", "", () => { setPane("code"); showSourceDiagnostics(); }],
+    ["Jump to Function", "", () => { setPane("code"); procedures.focus(); }]
   ]);
   const help = windowMenu("Help", [
     ["Lua form events", "lua", () => showLuaHelp()],
@@ -1482,7 +1588,7 @@ function renderLuaStudio(win) {
     ["Clear Watches", "", () => { watches = []; textStatus("Watches cleared for the next run."); }],
     ["Clear Breakpoints", "", () => { breakpoints.clear(); updateGutters(); textStatus("Breakpoints cleared."); }]
   ]);
-  menuBar.append(file, edit, examples, layout, debug, help);
+  menuBar.append(file, edit, examples, layout, debug, sourceTools, help);
   const runButton = toolbarButton("Run", () => run());
   runButton.classList.add("lua-run");
   runButton.title = "Run (F5 or Ctrl+Enter)";
@@ -1515,13 +1621,17 @@ function renderLuaStudio(win) {
   code.setAttribute("aria-label", "Lua source");
   code.value = sourceDoc().code;
   code.addEventListener("input", codeChanged);
+  code.addEventListener("compositionstart", () => { highlightViewport.hidden = true; code.classList.remove("lua-highlight-enabled"); });
+  code.addEventListener("compositionend", () => {
+    highlightViewport.hidden = false; code.classList.add("lua-highlight-enabled"); updateHighlight();
+  });
   for (const event of ["select", "keyup", "blur"]) {
     code.addEventListener(event, () => { caretOffset = code.selectionStart; });
   }
   debug.addEventListener("pointerdown", () => {
     if (document.activeElement === code) caretOffset = code.selectionStart;
   });
-  code.addEventListener("scroll", () => { gutters.scrollTop = code.scrollTop; });
+  code.addEventListener("scroll", () => { gutters.scrollTop = code.scrollTop; updateHighlight(); });
   gutters.title = "Click a line number to toggle a breakpoint";
   gutters.addEventListener("click", event => {
     const top = parseFloat(getComputedStyle(gutters).paddingTop);
@@ -1532,7 +1642,14 @@ function renderLuaStudio(win) {
   // Small-screen source editing: soft tabs, block indent/outdent and smart Enter.
   // Never modify the file on a navigation key or inside an IME composition.
   code.addEventListener("keydown", event => {
-    if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.isComposing) return;
+    if ((event.ctrlKey || event.metaKey) && event.code === "Space") {
+      event.preventDefault(); showCompletion(); return;
+    }
+    if (event.key === "Escape" && !suggestionBar.hidden) {
+      event.preventDefault(); suggestionBar.hidden = true; return;
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === "Tab") {
       event.preventDefault();
       const a = code.selectionStart, b = code.selectionEnd;
@@ -1622,7 +1739,7 @@ function renderLuaStudio(win) {
     }
   });
   const openEvent = toolbarButton("Open Event", () => editHandler(objects.value + "_" + eventKinds.value));
-  actions.append(codeCaption, objects, eventKinds, openEvent);
+  actions.append(codeCaption, objects, eventKinds, openEvent, procedures);
   objects.addEventListener("change", () => {
     method = objects.value + "_" + (objects.value === "Form" ? "Load" : "Click");
     redrawMethods();
@@ -1666,8 +1783,21 @@ function renderLuaStudio(win) {
     findRow.hidden = !findRow.hidden;
     if (!findRow.hidden) findText.focus();
   }));
-  source.append(gutters, code);
-  editor.append(actions, findRow, source, debugPanel);
+  actions.append(toolbarButton("Suggest", () => { setPane("code"); showCompletion(); }),
+    toolbarButton("Check", showSourceDiagnostics));
+  procedures.addEventListener("change", () => {
+    const offset = Number(procedures.value);
+    if (procedures.value) {
+      code.focus(); code.setSelectionRange(offset, offset);
+      scrollToCodeLine(code.value.slice(0, offset).split("\n").length);
+    }
+  });
+  codeStack.append(highlightViewport, code);
+  source.append(gutters, codeStack);
+  editor.append(actions, findRow, suggestionBar, syntaxReport, source, debugPanel);
+  code.classList.add("lua-highlight-enabled");
+  refreshProcedures(true);
+  updateHighlight();
   immediate.textContent = "Output from print() and Lua errors appear here.";
   chrome.append(menuBar, toolbar);
   shell.append(chrome, tabs, explorer, designer, menuEditor, editor, immediate, status);

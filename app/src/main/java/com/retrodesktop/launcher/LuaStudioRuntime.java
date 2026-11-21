@@ -371,8 +371,9 @@ final class LuaStudioRuntime {
             @Override public Varargs invoke(Varargs args) {
                 String kind = args.checkjstring(1).toLowerCase(java.util.Locale.ROOT);
                 if (!("message".equals(kind) || "confirm".equals(kind) ||
-                      "input".equals(kind) || "color".equals(kind))) {
-                    throw new LuaError("Dialog kind must be message, confirm, input, or color.");
+                      "input".equals(kind) || "color".equals(kind) ||
+                      "open".equals(kind) || "save".equals(kind))) {
+                    throw new LuaError("Dialog kind must be message, confirm, input, color, open, or save.");
                 }
                 if (dialogs.length() >= 3) throw new LuaStudioDebugger.Limit("Too many dialogs in one event.");
                 String title = formText(args.optjstring(2, "Dialog"), 60);

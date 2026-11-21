@@ -87,6 +87,18 @@ function launchLuaProject(project, callbacks) {
     if (ended || activeDialog || !dialogQueue.length) return;
     const request = dialogQueue.shift();
     if (!states.has(request.form)) { showNextDialog(); return; }
+    if (request.kind === "open" || request.kind === "save") {
+      let listing;
+      try {
+        listing = storageKey && native?.luaWorkspaceFile
+          ? JSON.parse(native.luaWorkspaceFile("list", callbacks.storageId, "", ""))
+          : !storageKey ? luaPreviewFile(previewFiles, "list", "", "")
+          : {ok:false,error:"File storage is unavailable."};
+      } catch (error) { listing = {ok:false,error:"Could not list app files."}; }
+      request.fileNames = listing.ok ? String(listing.text || "").split("\n")
+        .filter(name => luaFileNamePattern.test(name)).slice(0,32) : [];
+      request.listError = listing.ok ? "" : String(listing.error || "Could not list files.").slice(0,100);
+    }
     activeDialog = request;
     for (const win of windows.values()) win.refreshLuaForm(true, "Answer the dialog to continue");
     openWindow("lua-common-dialog", "$lua-dialog:" + session, {
@@ -207,7 +219,7 @@ function launchLuaProject(project, callbacks) {
     // Only controls belonging to the current project can open dialogs.
     for (const request of result.dialogs || []) {
       if (states.has(request.form) && Number.isInteger(request.id) &&
-          ["message", "confirm", "input", "color"].includes(request.kind) &&
+          ["message", "confirm", "input", "color", "open", "save"].includes(request.kind) &&
           dialogQueue.length < 6) dialogQueue.push(request);
     }
     const presentation = new Map();
@@ -468,17 +480,35 @@ function renderLuaCommonDialog(win) {
   const layout = element("form", "lua-common-dialog");
   layout.append(element("div", "lua-common-dialog-label", spec.message || spec.title));
   let field = null;
-  if (spec.kind === "input" || spec.kind === "color") {
+  if (spec.kind === "open") {
+    field = element("select", "text-entry");
+    field.setAttribute("aria-label", "Select app file");
+    field.replaceChildren(...(spec.fileNames || []).map(name => new Option(name, name)));
+    if (!spec.fileNames?.length) layout.append(element("span", "lua-common-dialog-label", spec.listError || "There are no files in this app's workspace."));
+    layout.append(field);
+  }
+  if (spec.kind === "input" || spec.kind === "color" || spec.kind === "save") {
     field = element("input", "text-entry");
     field.type = spec.kind === "color" ? "color" : "text";
     field.maxLength = 100;
-    field.value = spec.defaultValue || (spec.kind === "color" ? "#008080" : "");
-    field.setAttribute("aria-label", spec.kind === "color" ? "Select color" : "Enter value");
+    field.value = spec.defaultValue || (spec.kind === "color" ? "#008080" : spec.kind === "save" ? "notes.txt" : "");
+    field.setAttribute("aria-label", spec.kind === "color" ? "Select color" : spec.kind === "save" ? "App file name" : "Enter value");
     layout.append(field);
   }
+  const fileNotice = element("div", "lua-file-notice");
+  fileNotice.hidden = true;
+  if (spec.kind === "open" || spec.kind === "save") layout.append(fileNotice);
   const actions = element("div", "lua-common-dialog-actions");
   const finish = accepted => {
     if (win.luaDialogResolved) return;
+    if (accepted && (spec.kind === "open" || spec.kind === "save")) {
+      if (!field?.value || !luaFileNamePattern.test(field.value) ||
+          (spec.kind === "open" && !(spec.fileNames || []).includes(field.value))) {
+        fileNotice.textContent = "Choose a valid .txt, .csv or .json file in this app's workspace.";
+        fileNotice.hidden = false;
+        return;
+      }
+    }
     win.luaDialogResolved = true;
     const value = accepted ? (field?.value || (spec.kind === "confirm" ? "OK" : "")) : "";
     closeWindow(win.id);

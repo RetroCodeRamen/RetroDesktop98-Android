@@ -1,6 +1,6 @@
 # Lua Studio ↔ Visual Basic 6 — feature audit
 
-> **Audit baseline:** Retro Desktop 98 v2.7 source, 2026-11-21. **Phase 1, Phase 2 and Phase 3** below describe experimental code on the `feature/lua-studio-vb6-phase1` branch, not a released Android APK. **VB6-inspired** means similar workflow, **not** the Visual Basic 6 language or Windows binary compatibility.
+> **Audit baseline:** Retro Desktop 98 v2.7 source, 2026-11-21. **Phases 1–5** below describe experimental code on the `feature/lua-studio-vb6-phase1` branch, not a released Android APK. **VB6-inspired** means similar workflow, **not** the Visual Basic 6 language or Windows binary compatibility.
 
 VB6 shipped a full IDE, programming language, Windows runtime, developer tools and COM/ActiveX ecosystem. Lua Studio currently uses sandboxed LuaJ, a HTML/CSS form renderer and a small JSON project model, so it cannot honestly be called “full VB6” until distinct layers are implemented and tested. No existing `.vbp`, `.frm`, `.bas`, `.cls`, `.ocx`, or compiled VB6 `.exe` is executed by this project.
 
@@ -132,6 +132,16 @@ For API examples and design details, see [Phase 2 guide](LUA_STUDIO_PHASE2.md).
 - [Microsoft: Object Browser](https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/use-the-object-browser)
 - [Microsoft: View menu / IDE windows](https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/view-menu)
 
+
+## Phase 5 (development branch only)
+
+- **Professional source editing — expanded:** a safe, offline Lua syntax overlay, bounded completion candidates, per-file function navigator, lexical delimiter/quote diagnostics. Runtime parsing remains authoritative; no full IntelliSense, refactoring engine, code folding or type checker.
+- **Reusable class-style modules — partial:** `Project → Add Class` creates a named source module with a Lua factory (`Class1_new`) and closure-backed object methods. No actual VB6 class semantics, COM, interfaces, or `WithEvents` support.
+- **Open/Save file dialogs — expanded:** `ui.dialog("open"/"save")` uses only the app-local scoped file list/name pattern and `Form_DialogResult`. No arbitrary filesystem access or native Android file picker capability for Lua scripts.
+- **Make Application — expanded:** name, semantic version and description stored in project metadata and published Lua program catalog. Still only a launcher-native Lua app, **not** a generated APK, standalone Win32 `.exe`, or Lua binary.
+- **Validation:** `node tests/lua-studio-phase5.test.js` covers source/editor behavior, project migration, and sandbox picker routing. Android build and device tests still required before merging.
+
+See [Phase 5 developer guide](LUA_STUDIO_PHASE5.md).
 
 ## Phase 4 (development branch only)
 

@@ -173,10 +173,15 @@ function luaProject(value) {
     }
     return form;
   });
-  const modules = value.modules.map(raw => ({name: useName(raw?.name, objectNames), code: source(raw.code)}));
+  const modules = value.modules.map(raw => ({name: useName(raw?.name, objectNames), code: source(raw.code),
+    kind: raw.kind === "class" ? "class" : "module"}));
+  const meta = value.meta && typeof value.meta === "object" && !Array.isArray(value.meta) ? value.meta : {};
+  const version = luaText(meta.version, 24, "1.0.0");
+  if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(version)) throw Error("Use a version like 1.0.0.");
+  const description = luaText(meta.description, 160);
   const valid = {format: luaProjectFormat, version: 2, name: luaText(value.name, 70).trim() || "Project1",
     startup: forms.some(form => form.name === value.startup) ? value.startup : forms[0].name,
-    forms, modules};
+    forms, modules, meta: {version, description}};
   if (JSON.stringify(valid).length > luaMaxPayload) throw Error("This Lua project is too large.");
   return valid;
 }
@@ -322,4 +327,27 @@ function Form_FileResult(event)
 end
 `;
   return {format: luaProjectFormat, version: 2, name: "Pocket Notepad", startup: "MainForm", forms: [form], modules: []};
+}
+
+// Plain Lua factory, not COM/ActiveX. Modules run in the isolated LuaJ environment;
+// this pattern gives reusable stateful objects without exposing metatables or Java.
+function luaClassTemplate(name) {
+  return `-- ${name}: reusable class-style factory\n-- Call ${name}_new() from any form.\nfunction ${name}_new(initial)\n  local value = tonumber(initial) or 0\n  local obj = {}\n  function obj:getValue()\n    return value\n  end\n  function obj:increment(amount)\n    value = value + (tonumber(amount) or 1)\n    return value\n  end\n  return obj\nend\n`;
+}
+
+function luaClassExample() {
+  const main = luaNewForm("MainForm");
+  main.caption = "Counter Object Demo";
+  main.controls.push(luaControl("button", "Advance", "Add 1", 30, 24, 100, 32));
+  main.controls.push(luaControl("label", "Result", "0", 30, 72, 160, 32));
+  main.code = `function Form_Load()
+  shared.counter = Counter_new(0)
+end
+
+function Advance_Click()
+  ui.set("Result", "text", tostring(shared.counter:increment(1)))
+end
+`;
+  return {format: luaProjectFormat, version: 2, name: "Reusable Class Demo", startup: "MainForm", forms: [main],
+    modules: [{name:"Counter", kind:"class", code:luaClassTemplate("Counter")}]};
 }
