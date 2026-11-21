@@ -16,6 +16,21 @@ function luaExample(example = "counter") {
       code: 'local count = 0\n\nfunction Command1_Click()\n  count = count + 1\n  ui.set("Label1", "Clicks: " .. count)\n  print("Count", count)\nend\n\nfunction Command2_Click()\n  count = 0\n  ui.set("Label1", "Clicks: 0")\nend\n'
     };
   }
+  if (example === "events") {
+    return {...base, name: "Event Playground", form: {...base.form, caption: "Event Playground", height: 210},
+      controls: [
+        luaControl("label", "Label1", "Try typing, clicking and double-clicking", 12, 12, 275, 27),
+        luaControl("text", "Text1", "", 12, 47, 265, 29),
+        luaControl("button", "Command1", "Try me", 12, 94, 125, 36),
+        luaControl("label", "Label2", "Watch Immediate output", 12, 151, 270, 30)
+      ],
+      code: 'function Command1_Click()\n  ui.set("Label2", "Single click")\n  print("Button clicked")\nend\n\n' +
+        'function Command1_DblClick(event)\n  print("Double click at", event.x, event.y)\nend\n\n' +
+        'function Command1_MouseDown(event)\n  print("Pointer button", event.button)\nend\n\n' +
+        'function Text1_Change(value)\n  print("Text changed to", value)\nend\n\n' +
+        'function Text1_KeyDown(event)\n  print("Key", event.key)\nend\n'
+    };
+  }
   if (example === "greeter") {
     return {...base, name: "Hello Form", form: {...base.form, caption: "Hello Form", height: 188},
       controls: [
@@ -30,12 +45,162 @@ function luaExample(example = "counter") {
   return base;
 }
 
+
+function luaDatabaseExample() {
+  const form = luaNewForm("MainForm");
+  form.caption = "SQLite Address Book";
+  form.width = 330; form.height = 260;
+  form.controls = [
+    luaControl("label","NameLabel","Name",12,14,85,22),
+    luaControl("text","NameInput","",92,10,215,30),
+    luaControl("button","AddButton","Add contact",12,49,140,32),
+    luaControl("button","RefreshButton","Refresh",163,49,144,32),
+    luaControl("listview","Contacts","",12,90,295,123),
+    luaControl("statusbar","Status","Ready",12,225,295,26)
+  ];
+  form.controls[4].columns = ["Contact"];
+  form.code = [
+    "function Form_Load()",
+    '  db.exec("CREATE TABLE IF NOT EXISTS contacts (name TEXT NOT NULL)")',
+    "end", "",
+    "function AddButton_Click()",
+    '  local name = ui.get("NameInput", "text")',
+    '  if name == "" then ui.message("Enter a name first."); return end',
+    '  db.exec("INSERT INTO contacts(name) VALUES (?)", name)',
+    "end", "",
+    "function RefreshButton_Click()",
+    '  db.query("SELECT name FROM contacts ORDER BY name LIMIT 24")',
+    "end", "",
+    "function Form_DatabaseResult(event)",
+    "  if not event.ok then",
+    '    ui.set("Status","text","Database error: " .. event.error)',
+    "    return",
+    "  end",
+    '  if event.action == "exec" then',
+    '    db.query("SELECT name FROM contacts ORDER BY name LIMIT 24")',
+    '  elseif event.action == "query" then',
+    '    ui.setColumns("Contacts",event.columns)',
+    '    ui.setItems("Contacts",event.text)',
+    '    ui.set("Status","text","Contacts: " .. event.count)',
+    "  end",
+    "end"
+  ].join("\n");
+  return luaProject({format:luaProjectFormat,version:2,name:"SQLite Address Book",
+    startup:"MainForm",forms:[form],modules:[],meta:{version:"1.0.0",description:"SQLite contact database demo"}});
+}
+
 function loadLuaProject() {
   try {
     return luaProject(JSON.parse(native?.loadLuaProject?.() || localStorage.getItem("retro98-lua-project") || "null"));
   } catch (error) {
     return luaProject(luaExample());
   }
+}
+
+// One renderer shared by the form designer and running windows. It never
+// interpolates the user's items as HTML; labels are plain text.
+function luaCommonControlItems(control, node) {
+  if (!["treeview", "listview", "tabstrip", "toolbar"].includes(control.type)) return;
+  const items = control.items || [];
+  if (control.type === "treeview" || control.type === "listview") {
+    const signature = JSON.stringify([items, control.columns || []]);
+    if (node.dataset.items !== signature) {
+      const previousSelection = node.value;
+      node.replaceChildren();
+      const selectRow = value => {
+        if (!control.enabled || node.value === value) return;
+        node.value = value;
+        node.querySelectorAll("[data-lua-item]").forEach(row => {
+          row.setAttribute("aria-selected", String(row.dataset.luaItem === value));
+        });
+        node.dispatchEvent(new Event("change", {bubbles: true}));
+      };
+      if (control.type === "treeview") {
+        node._collapsed ||= new Set();
+        const hasChildren = item => items.some(other => other.startsWith(item + "/"));
+        const updateBranches = () => {
+          node.querySelectorAll("[data-lua-item]").forEach(row => {
+            const parentSegments = row.dataset.luaItem.split("/").slice(0, -1);
+            row.hidden = parentSegments.some((_, index) =>
+              node._collapsed.has(parentSegments.slice(0, index+1).join("/")));
+          });
+        };
+        for (const item of items) {
+          const row = element("div", "lua-tree-row");
+          row.dataset.luaItem = item;
+          row.setAttribute("role", "treeitem");
+          row.style.paddingLeft = (3 + Math.min(item.split("/").length - 1, 5) * 13) + "px";
+          if (hasChildren(item)) {
+            const toggle = element("button", "lua-tree-toggle", node._collapsed.has(item) ? "+" : "−");
+            toggle.type = "button";
+            toggle.tabIndex = -1;
+            toggle.setAttribute("aria-label", "Expand or collapse " + item);
+            toggle.addEventListener("click", event => {
+              event.stopPropagation();
+              if (node._collapsed.has(item)) node._collapsed.delete(item);
+              else node._collapsed.add(item);
+              toggle.textContent = node._collapsed.has(item) ? "+" : "−";
+              updateBranches();
+            });
+            row.append(toggle);
+            row.setAttribute("aria-expanded", String(!node._collapsed.has(item)));
+          } else row.append(element("span", "lua-tree-leaf", "•"));
+          row.append(element("span", "", item.split("/").at(-1)));
+          row.addEventListener("click", () => selectRow(item));
+          node.append(row);
+        }
+        updateBranches();
+      } else {
+        const headings = (control.columns || []).slice(0,4);
+        const count = Math.max(1, headings.length);
+        if (headings.length) {
+          const header = element("div", "lua-listview-row lua-listview-header");
+          header.style.gridTemplateColumns = `repeat(${count}, minmax(0, 1fr))`;
+          headings.forEach(text => header.append(element("span", "", text)));
+          node.append(header);
+        }
+        for (const item of items) {
+          const row = element("div", "lua-listview-row");
+          row.dataset.luaItem = item;
+          row.setAttribute("role", "option");
+          row.style.gridTemplateColumns = `repeat(${count}, minmax(0, 1fr))`;
+          const values = item.split("\t");
+          for (let index = 0; index < count; index++) {
+            row.append(element("span", "", values[index] || ""));
+          }
+          row.addEventListener("click", () => selectRow(item));
+          node.append(row);
+        }
+      }
+      node.value = previousSelection;
+      node.dataset.items = signature;
+    }
+    node.value = control.value;
+    node.querySelectorAll("[data-lua-item]").forEach(row => {
+      row.setAttribute("aria-selected", String(row.dataset.luaItem === control.value));
+    });
+    node.setAttribute("aria-disabled", String(!control.enabled));
+    return;
+  }
+  const signature = JSON.stringify([items, control.value]);
+  if (node.dataset.items !== signature) {
+    node.replaceChildren();
+    for (const item of items) {
+      const tab = element("button", "bevel lua-common-item", item);
+      tab.type = "button";
+      tab.disabled = !control.enabled;
+      tab.dataset.value = item;
+      tab.setAttribute("aria-pressed", String(item === control.value));
+      tab.addEventListener("click", () => {
+        if (node.value === item) return;
+        node.value = item;
+        node.dispatchEvent(new Event("change", {bubbles: true}));
+      });
+      node.append(tab);
+    }
+    node.dataset.items = signature;
+  }
+  node.value = control.value;
 }
 
 function luaObjectNode(control) {
@@ -56,11 +221,20 @@ function luaObjectNode(control) {
     text = element("span");
     node.append(check, text);
   } else if (luaChoiceTypes.includes(control.type)) {
-    node = element("select", "text-entry lua-list-control");
+    if (["tabstrip", "toolbar", "treeview", "listview"].includes(control.type)) {
+      node = element("div", "lua-common-strip lua-" + control.type);
+      node.setAttribute("role", control.type === "treeview" ? "tree" : control.type === "listview" ? "listbox" : "group");
+      if (["treeview", "listview"].includes(control.type)) node.tabIndex = 0;
+    } else {
+      node = element("select", "text-entry lua-list-control lua-" + control.type);
+      node.size = ["list", "treeview", "listview"].includes(control.type) ? 4 : 1;
+      if (["list", "combo"].includes(control.type)) {
+        node.add(new Option("", ""));
+        control.items.forEach(item => node.add(new Option(item, item)));
+      }
+    }
     node.setAttribute("aria-label", control.name);
-    if (control.type === "list") node.size = 3;
-    node.add(new Option("", ""));
-    control.items.forEach(item => node.add(new Option(item, item)));
+    luaCommonControlItems(control, node);
   } else if (luaRangeTypes.includes(control.type)) {
     node = element(control.type === "progress" ? "progress" : "input", "lua-range lua-" + control.type);
     if (control.type !== "progress") node.type = "range";
@@ -78,6 +252,8 @@ function luaObjectNode(control) {
     if (control.type === "timer") node.append(retroIcon("clock", 17), element("span", "", control.name));
     if (control.type !== "timer") node.style.setProperty("--draw-color", control.color);
     if (control.type === "shape" && control.shape === "ellipse") node.classList.add("lua-ellipse");
+  } else if (control.type === "statusbar") {
+    node = text = element("div", "lua-statusbar-control");
   } else if (control.type === "frame") {
     node = element("fieldset", "lua-group");
     text = element("legend");
@@ -100,6 +276,7 @@ function luaInputProperty(control) {
 function updateLuaObject(control, parts, design) {
   const {node, text, input} = parts;
   if (text) text.textContent = control.text;
+  luaCommonControlItems(control, node);
   if (input) {
     if (luaTickTypes.includes(control.type)) input.checked = control.checked;
     else {
@@ -122,6 +299,10 @@ function updateLuaObject(control, parts, design) {
   node.hidden = !design && !control.visible;
 }
 
+function aNonEmptyLineBeforeCaret(editor) {
+  return /\S/.test(editor.value.slice(editor.value.lastIndexOf("\n", editor.selectionStart - 1) + 1, editor.selectionStart));
+}
+
 function renderLuaStudio(win) {
   let project = loadLuaProject();
   let publishedId = native?.loadLuaWorkspaceProgram?.() || "";
@@ -136,6 +317,10 @@ function renderLuaStudio(win) {
   let pictureTarget = null;
   const breakpoints = new Map();
   let watches = [];
+  const designerClipboard = [];
+  const history = [];
+  let historyIndex = -1;
+  let historyAt = 0;
   const sourceDoc = () => module || form;
   const sourceName = () => sourceDoc().name + ".lua";
   let method = "Form_Load";
@@ -168,10 +353,26 @@ function renderLuaStudio(win) {
   const inspector = element("div", "lua-inspector sunken");
   const editor = element("div", "lua-editor");
   const code = element("textarea", "lua-code-input");
+  const codeStack = element("div", "lua-code-stack");
+  const highlightViewport = element("div", "lua-highlight-viewport");
+  const highlight = element("pre", "lua-highlight");
+  highlight.setAttribute("aria-hidden", "true");
+  highlightViewport.setAttribute("aria-hidden", "true");
+  highlightViewport.append(highlight);
+  const suggestionBar = element("div", "lua-suggestions");
+  suggestionBar.hidden = true;
+  suggestionBar.setAttribute("role", "listbox");
+  suggestionBar.setAttribute("aria-label", "Lua completion suggestions");
+  const syntaxReport = element("div", "lua-syntax-report");
+  syntaxReport.hidden = true;
+  const procedures = element("select", "text-entry lua-procedure-list");
+  procedures.setAttribute("aria-label", "Jump to function");
   const gutters = element("pre", "lua-gutters", "1");
   const actions = element("div", "app-toolbar lua-code-actions");
   const objects = element("select", "text-entry");
-  objects.setAttribute("aria-label", "Event handler");
+  objects.setAttribute("aria-label", "Object (VB6-style selector)");
+  const eventKinds = element("select", "text-entry");
+  eventKinds.setAttribute("aria-label", "Procedure or event (VB6-style selector)");
   const immediate = element("pre", "lua-immediate");
   immediate.setAttribute("aria-label", "Immediate output");
   immediate.setAttribute("role", "log");
@@ -195,7 +396,56 @@ function renderLuaStudio(win) {
     else localStorage.setItem("retro98-lua-project", json);
   }
 
-  function modified() {
+  // Project-wide undo includes designer, properties, menus and code. Consecutive keystrokes
+  // in the same Lua file are coalesced so the 80-entry history is useful on a phone.
+  function recordHistory(kind = "design") {
+    const snapshot = JSON.stringify(project);
+    if (history[historyIndex]?.snapshot === snapshot) return;
+    const now = Date.now();
+    if (kind === "typing" && historyIndex > 0 && history[historyIndex]?.kind === "typing" &&
+        history[historyIndex]?.source === sourceName() && now - historyAt < 900) {
+      history[historyIndex] = {snapshot, kind, source: sourceName()};
+    } else {
+      history.splice(historyIndex + 1);
+      history.push({snapshot, kind, source: sourceName()});
+      if (history.length > 80) history.shift();
+      historyIndex = history.length - 1;
+    }
+    historyAt = now;
+  }
+
+  function resetHistory() {
+    history.length = 0;
+    historyIndex = -1;
+    recordHistory();
+  }
+
+  function travelHistory(direction) {
+    const next = historyIndex + direction;
+    if (next < 0 || next >= history.length) {
+      textStatus(direction < 0 ? "Nothing to undo." : "Nothing to redo.");
+      return;
+    }
+    const priorForm = form.name;
+    const priorModule = module?.name;
+    const view = pane;
+    project = luaProject(JSON.parse(history[next].snapshot));
+    historyIndex = next;
+    historyAt = 0;
+    form = project.forms.find(item => item.name === priorForm) || project.forms[0];
+    module = project.modules.find(item => item.name === priorModule) || null;
+    selected = "";
+    selectedControls.clear();
+    method = "Form_Load";
+    syncSource();
+    redrawDesign();
+    setPane(module ? "code" : view);
+    persist();
+    textStatus(direction < 0 ? "Undo complete." : "Redo complete.");
+  }
+
+  function modified(kind = "design") {
+    recordHistory(kind);
     clearTimeout(saveTimer);
     saveTimer = setTimeout(persist, 280);
   }
@@ -212,7 +462,63 @@ function renderLuaStudio(win) {
       textStatus("Line positions changed. Set the affected breakpoints again.");
     }
     updateGutters();
-    modified();
+    updateHighlight();
+    refreshProcedures(false);
+    syntaxReport.hidden = true;
+    modified("typing");
+  }
+
+  function updateHighlight() {
+    if (!highlightViewport.hidden) {
+      highlight.innerHTML = luaHighlightSource(code.value) + "\n";
+      highlight.style.transform = `translate(${-code.scrollLeft}px, ${-code.scrollTop}px)`;
+    }
+  }
+
+  function refreshProcedures(reset = false) {
+    const previous = reset ? "" : procedures.value;
+    const found = luaSourceFunctions(code.value);
+    procedures.replaceChildren(new Option("Functions…", ""), ...found.map(item =>
+      new Option(item.name + " · line " + item.line, String(item.offset))));
+    if (previous && [...procedures.options].some(item => item.value === previous)) procedures.value = previous;
+  }
+
+  function showSourceDiagnostics() {
+    const findings = luaSourceDiagnostics(code.value);
+    syntaxReport.hidden = false;
+    syntaxReport.replaceChildren();
+    if (!findings.length) {
+      syntaxReport.append(element("span", "", "No lexical errors detected. Run the project to check Lua syntax and runtime behavior."));
+      return;
+    }
+    for (const problem of findings) {
+      const jump = toolbarButton("Line " + problem.line + " · " + problem.message, () => gotoLine(problem.line));
+      syntaxReport.append(jump);
+    }
+  }
+
+  function showCompletion() {
+    const names = project.forms.flatMap(entry => luaSourceFunctions(entry.code).map(item=>item.name))
+      .concat(project.modules.flatMap(entry => luaSourceFunctions(entry.code).map(item=>item.name)));
+    const result = luaCompleteAt(code.value, code.selectionStart, names);
+    suggestionBar.replaceChildren();
+    if (!result.items.length) { suggestionBar.hidden = true; textStatus("No matching completions."); return; }
+    suggestionBar.hidden = false;
+    result.items.forEach(({label,insert,detail}) => {
+      const option = toolbarButton(label + (detail ? " · " + detail : ""), () => {
+        // A completion is applied only to the original token, not arbitrary selected source.
+        code.focus();
+        const start = result.start;
+        const end = code.selectionStart;
+        if (end >= start && code.value.length - (end - start) + insert.length <= luaMaxCode) {
+          code.setRangeText(insert, start, end, "end");
+          codeChanged();
+        }
+        suggestionBar.hidden = true;
+      });
+      option.setAttribute("role", "option");
+      suggestionBar.append(option);
+    });
   }
 
   function updateGutters() {
@@ -336,7 +642,76 @@ function renderLuaStudio(win) {
 
   function formObjectNames() {
     return [...form.controls.map(control => control.name),
+      ...form.controls.map(control => control.arrayName).filter(Boolean),
       ...form.menus.flatMap(menu => [menu.name, ...menu.items.map(item => item.name)])];
+  }
+
+  function arrayNameValid(name, current) {
+    if (!name) return true;
+    if (!luaIdentifier.test(name) || name === "Form" || form.controls.some(peer => peer.name === name) ||
+        form.menus.some(menu => menu.name === name || menu.items.some(item => item.name === name))) return false;
+    return !form.controls.some(peer => peer !== current && peer.arrayName === name && peer.type !== current.type);
+  }
+
+  function ensureArrayIndex(control) {
+    if (!control.arrayName) return;
+    const taken = form.controls.some(peer => peer !== control && peer.arrayName === control.arrayName &&
+      peer.arrayIndex === control.arrayIndex);
+    if (taken) control.arrayIndex = luaArrayNextIndex(form, control.arrayName);
+  }
+
+  function createArray() {
+    const current = form.controls.find(control => control.name === selected);
+    if (!current) { textStatus("Select a control first."); return; }
+    if (current.arrayName) { textStatus("This control already belongs to " + current.arrayName + "."); return; }
+    const used = formObjectNames();
+    const name = luaFreeName(current.name.slice(0, 27) + "Arr", used);
+    current.arrayName = name;
+    current.arrayIndex = 0;
+    redrawProperties();
+    redrawMethods();
+    modified();
+    textStatus(name + " created. Duplicate the control to add members, then edit the shared event.");
+  }
+
+  function copyControls(cut = false) {
+    designerClipboard.splice(0, designerClipboard.length,
+      ...form.controls.filter(control => selectedControls.has(control.name))
+        .map(control => JSON.parse(JSON.stringify(control))));
+    if (!designerClipboard.length) { textStatus("Select one or more controls first."); return; }
+    if (cut) deleteControl();
+    textStatus(designerClipboard.length + (cut ? " control(s) cut." : " control(s) copied."));
+  }
+
+  function pasteControls() {
+    if (!designerClipboard.length) { textStatus("Nothing to paste."); return; }
+    if (form.controls.length + designerClipboard.length > 48) {
+      textStatus("This form can hold up to 48 controls."); return;
+    }
+    const next = [];
+    const left = Math.min(...designerClipboard.map(item => item.x));
+    const top = Math.min(...designerClipboard.map(item => item.y));
+    for (const item of designerClipboard) {
+      const name = luaFreeName(luaControlTypes[item.type].prefix, formObjectNames());
+      const control = {...JSON.parse(JSON.stringify(item)), name};
+      if (control.arrayName && !arrayNameValid(control.arrayName, control)) {
+        control.arrayName = "";
+        control.arrayIndex = 0;
+      }
+      ensureArrayIndex(control);
+      control.width = Math.min(control.width, form.width);
+      control.height = Math.min(control.height, form.height);
+      control.x = clamp(item.x - left + 12, 0, form.width - control.width);
+      control.y = clamp(item.y - top + 12, 0, form.height - control.height);
+      form.controls.push(control);
+      next.push(name);
+    }
+    selectedControls = new Set(next);
+    selected = next.at(-1);
+    redrawDesign();
+    redrawMethods();
+    modified();
+    textStatus(next.length + " control(s) pasted. New names have been assigned.");
   }
 
   function arrangeControls(action) {
@@ -348,21 +723,39 @@ function renderLuaStudio(win) {
       const added = [];
       for (const control of group) {
         const name = luaFreeName(luaControlTypes[control.type].prefix, formObjectNames());
-        form.controls.push({...control, name, items: control.items.slice(),
+        const duplicate = {...control, name, items: control.items.slice(),
           x: Math.min(form.width - control.width, control.x + 12),
-          y: Math.min(form.height - control.height, control.y + 12)});
+          y: Math.min(form.height - control.height, control.y + 12)};
+        ensureArrayIndex(duplicate);
+        form.controls.push(duplicate);
         added.push(name);
       }
       selected = added[0];
       selectedControls = new Set(added);
     } else {
-      if (group.length < 2) { textStatus("Select two or more controls to align them."); return; }
-      for (const control of group) {
+      if (group.length < 2) { textStatus("Select two or more controls to format them."); return; }
+      const ordered = group.slice().sort((a, b) =>
+        (action === "distribute-vertical" ? a.y - b.y : a.x - b.x));
+      const dimension = action === "distribute-vertical" ? "y" : "x";
+      const lengthKey = action === "distribute-vertical" ? "height" : "width";
+      const span = ordered.at(-1)[dimension] - ordered[0][dimension];
+      const middle = (group.length - 1) || 1;
+      if (action.startsWith("distribute-") && group.length < 3) {
+        textStatus("Select at least three controls to distribute."); return;
+      }
+      for (let index = 0; index < ordered.length; index++) {
+        const control = ordered[index];
         if (action === "left") control.x = Math.min(anchor.x, form.width - control.width);
+        if (action === "right") control.x = clamp(anchor.x + anchor.width - control.width, 0, form.width - control.width);
         if (action === "top") control.y = Math.min(anchor.y, form.height - control.height);
-        if (action === "size") {
-          control.width = Math.min(anchor.width, form.width - control.x);
-          control.height = Math.min(anchor.height, form.height - control.y);
+        if (action === "bottom") control.y = clamp(anchor.y + anchor.height - control.height, 0, form.height - control.height);
+        if (action === "center-h") control.x = clamp(Math.round(anchor.x + anchor.width / 2 - control.width / 2), 0, form.width - control.width);
+        if (action === "center-v") control.y = clamp(Math.round(anchor.y + anchor.height / 2 - control.height / 2), 0, form.height - control.height);
+        if (["size", "width"].includes(action)) control.width = Math.min(anchor.width, form.width - control.x);
+        if (["size", "height"].includes(action)) control.height = Math.min(anchor.height, form.height - control.y);
+        if (action.startsWith("distribute-")) {
+          control[dimension] = clamp(Math.round(ordered[0][dimension] + span * index / middle),
+            0, form[dimension === "x" ? "width" : "height"] - control[lengthKey]);
         }
       }
     }
@@ -500,7 +893,7 @@ function renderLuaStudio(win) {
       node.addEventListener("pointerdown", event => dragControl(event, node, control));
       node.addEventListener("dblclick", event => {
         event.stopPropagation();
-        const on = luaControlTypes[control.type].event;
+        const on = luaEventsForType(control.type)[0];
         if (on) editHandler(control.name + "_" + on);
       });
       node.addEventListener("keydown", event => {
@@ -512,7 +905,7 @@ function renderLuaStudio(win) {
         }
         else if (event.key === "Enter") {
           selectControl(control.name);
-          const on = luaControlTypes[control.type].event;
+          const on = luaEventsForType(control.type)[0];
           if (on) editHandler(control.name + "_" + on);
           else setPane("properties");
         }
@@ -610,17 +1003,22 @@ function renderLuaStudio(win) {
           textStatus("Enter a unique name starting with a letter. Use letters, digits, or underscores.");
           return current.name;
         }
-        const event = luaControlTypes[current.type].event;
-        if (event) {
+        // Keep all of a renamed control's event procedures together.
+        for (const event of luaEventsForType(current.type)) {
           const pattern = new RegExp("(\\bfunction\\s+)" + current.name + "_" + event + "(?=\\s*\\()", "g");
           form.code = form.code.replace(pattern, "$1" + value + "_" + event);
-          code.value = sourceDoc().code;
         }
+        code.value = sourceDoc().code;
         selectedControls.delete(current.name);
         selectedControls.add(value);
         selected = current.name = value;
         return value;
       }, 32, true);
+      if (current.type === "listview") {
+        field("Columns (tab separated)", current.columns.join("\t"), "text", value => {
+          current.columns = value.split("\t").slice(0,4).map(x => x.trim().slice(0,24)).filter(Boolean);
+        }, 128, true);
+      }
       if (luaChoiceTypes.includes(current.type)) {
         field("Items (one per line)", current.items.join("\n"), "area", value => {
           current.items = [...new Set(value.split(/\r?\n/).map(line => line.trim().slice(0, 60)).filter(Boolean))].slice(0, 24);
@@ -673,6 +1071,37 @@ function renderLuaStudio(win) {
         }));
       } else field(luaTextTypes.includes(current.type) ? "Text" : "Caption", current.text,
         current.type === "multiline" ? "area" : "text", value => { current.text = value; }, 500);
+      // VB6-style control arrays retain a stable physical ID but share event code
+      // through (Array name, Index). Existing single controls stay unchanged.
+      field("Array name", current.arrayName || "", "text", value => {
+        value = value.trim();
+        if (!arrayNameValid(value, current)) {
+          textStatus("Choose a unique array name. Members must use the same control type.");
+          return current.arrayName || "";
+        }
+        if (value !== current.arrayName) {
+          current.arrayName = value;
+          current.arrayIndex = 0;
+          ensureArrayIndex(current);
+          // Reveal/hide the Index field immediately after editing Array name.
+          setTimeout(redrawProperties, 0);
+        }
+        return current.arrayName;
+      }, 32, true);
+      if (current.arrayName) {
+        field("Index (0–255)", current.arrayIndex, "number", value => {
+          if (!Number.isInteger(value) || value < 0 || value > 255 ||
+              form.controls.some(peer => peer !== current && peer.arrayName === current.arrayName &&
+                peer.arrayIndex === value)) {
+            textStatus("This array needs an unused index from 0 to 255.");
+            return current.arrayIndex;
+          }
+          current.arrayIndex = value;
+          return value;
+        }, null, true);
+        buttons.append(toolbarButton("Edit " + current.arrayName + "_" + (luaEventsForType(current.type)[0] || "Click"),
+          () => editHandler(current.arrayName + "_" + (luaEventsForType(current.type)[0] || "Click"))));
+      } else buttons.append(toolbarButton("Create Control Array", createArray));
       number("Left", current, "x", 0, () => form.width - current.width);
       number("Top", current, "y", 0, () => form.height - current.height);
       number("Width", current, "width", 20, () => form.width - current.x);
@@ -688,8 +1117,8 @@ function renderLuaStudio(win) {
         flag("Tab stop", "tabStop");
         number("Tab order", current, "tabIndex", 0, () => 99);
       }
-      const event = luaControlTypes[current.type].event;
-      if (event) buttons.append(toolbarButton(current.name + "_" + event, () => editHandler(current.name + "_" + event)));
+      const event = luaEventsForType(current.type)[0];
+      if (event && !current.arrayName) buttons.append(toolbarButton(current.name + "_" + event, () => editHandler(current.name + "_" + event)));
       buttons.append(toolbarButton("Delete Control", deleteControl));
     }
     inspector.replaceChildren(element("div", "lua-pane-title", "Properties"), entries, buttons);
@@ -706,15 +1135,24 @@ function renderLuaStudio(win) {
   }
 
   function redrawMethods() {
-    const events = module ? [] : ["Form_Load", "Form_Activate", "Form_Unload",
-      ...form.controls.filter(control => luaControlTypes[control.type].event)
-        .map(control => control.name + "_" + luaControlTypes[control.type].event),
-      ...luaMenuCommands(form).map(item => item.name + "_Click")];
-    if (!events.includes(method)) method = "Form_Load";
-    objects.replaceChildren(...events.map(event => new Option(event, event)));
-    objects.value = method;
-    objects.hidden = !events.length;
-    openEvent.hidden = !events.length;
+    if (module) {
+      objects.hidden = eventKinds.hidden = openEvent.hidden = true;
+      return;
+    }
+    const all = ["Form", ...new Set(form.controls.map(item => item.arrayName || item.name)),
+      ...luaMenuCommands(form).map(item => item.name)];
+    const split = method.lastIndexOf("_");
+    const wanted = split > 0 ? method.slice(0, split) : "Form";
+    const chosen = all.includes(wanted) ? wanted : "Form";
+    objects.replaceChildren(...all.map(item => new Option(item, item)));
+    objects.value = chosen;
+    const control = form.controls.find(item => (item.arrayName || item.name) === chosen);
+    const events = chosen === "Form" ? luaFormEvents : control ? luaEventsForType(control.type) : ["Click"];
+    const wantedEvent = split > 0 ? method.slice(split + 1) : "";
+    eventKinds.replaceChildren(...events.map(event => new Option(event, event)));
+    eventKinds.value = events.includes(wantedEvent) ? wantedEvent : events[0];
+    method = chosen + "_" + eventKinds.value;
+    objects.hidden = eventKinds.hidden = openEvent.hidden = false;
   }
 
   function editHandler(name) {
@@ -731,7 +1169,11 @@ function renderLuaStudio(win) {
       if (cursor < 0) cursor = code.value.length;
       else cursor++;
     } else {
-      const signature = name.endsWith("_Change") ? "value" : "";
+      const split = name.lastIndexOf("_");
+      const subject = name.slice(0, split);
+      const event = name.slice(split + 1);
+      const member = form.controls.find(control => control.arrayName === subject || control.name === subject);
+      const signature = luaHandlerSignature(member, event);
       const stub = "function " + name + "(" + signature + ")\n  \nend\n";
       const leading = code.value.trimEnd();
       const result = (leading ? leading + "\n\n" : "") + stub;
@@ -754,6 +1196,10 @@ function renderLuaStudio(win) {
     code.setSelectionRange(0, 0);
     caretOffset = 0;
     updateGutters();
+    updateHighlight();
+    refreshProcedures(true);
+    suggestionBar.hidden = true;
+    syntaxReport.hidden = true;
     redrawMethods();
   }
 
@@ -787,9 +1233,12 @@ function renderLuaStudio(win) {
     choices.addEventListener("change", () => { project.startup = choices.value; redrawProject(); modified(); });
     startup.append(choices);
     head.append(toolbarButton("Add Form", () => addProjectItem("form")),
-      toolbarButton("Add Module", () => addProjectItem("module")), startup);
+      toolbarButton("Add Module", () => addProjectItem("module")),
+      toolbarButton("Add Class", () => addProjectItem("class")), startup);
     const rows = element("div", "explorer lua-project-rows");
-    const sections = [["Forms", project.forms, openForm], ["Modules", project.modules, openModule]];
+    const sections = [["Forms", project.forms, openForm],
+      ["Modules", project.modules.filter(item => item.kind !== "class"), openModule],
+      ["Classes", project.modules.filter(item => item.kind === "class"), openModule]];
     for (const [label, entries, open] of sections) {
       rows.append(element("div", "program-group", label));
       for (const item of entries) {
@@ -837,8 +1286,10 @@ function renderLuaStudio(win) {
   function addProjectItem(kind) {
     const list = kind === "form" ? project.forms : project.modules;
     if (list.length >= (kind === "form" ? 8 : 12)) { textStatus("The project has reached its file limit."); return; }
-    const name = luaFreeName(kind === "form" ? "Form" : "Module", [...project.forms, ...project.modules].map(item => item.name));
-    const item = kind === "form" ? luaNewForm(name) : {name, code: "-- Functions declared here are available to the forms.\n"};
+    const name = luaFreeName(kind === "form" ? "Form" : kind === "class" ? "Class" : "Module",
+      [...project.forms, ...project.modules].map(item => item.name));
+    const item = kind === "form" ? luaNewForm(name) : {name, kind,
+      code: kind === "class" ? luaClassTemplate(name) : "-- Functions declared here are available to the forms.\n"};
     list.push(item);
     modified();
     if (kind === "form") openForm(item);
@@ -992,6 +1443,7 @@ function renderLuaStudio(win) {
       method = "Form_Load";
       syncSource();
       backup = JSON.stringify(project);
+      resetHistory();
       clearTool();
       logs.length = 0;
       immediate.textContent = "";
@@ -1023,29 +1475,49 @@ function renderLuaStudio(win) {
     native.desktopFile(action, fileRequest, exporting ? JSON.stringify({name: sourceName(), code: sourceDoc().code}) : snapshot);
   }
 
-  function publishProgram() {
-    if (!native?.publishLuaProgram) { textStatus("Publishing is available in the Android launcher."); return; }
+  function publishAs(name, metadata = project.meta) {
+    if (!native?.publishLuaProgram) { textStatus("Publishing requires the Android launcher."); return; }
     refreshLuaPrograms();
     const original = luaPrograms.get(publishedId);
-    nameDialog(original ? "Update Lua Program" : "Add to Programs", project.name, name => {
-      try {
-        const copy = luaProject({...project, name});
-        const result = JSON.parse(native.publishLuaProgram(original?.id || "", JSON.stringify(copy)));
-        if (result.error || !isLuaProgramId(result.id)) throw Error(result.error || "Could not publish the program.");
-        project.name = copy.name;
-        publishedId = result.id;
-        backup = JSON.stringify(project);
-        persist();
-        redrawDesign();
-        if (pane === "project") redrawProject();
-        refreshLuaPrograms();
-        const message = (original ? "Program updated in Start → Programs." : "Added to Start → Programs → Lua Programs.");
-        textStatus(message);
-        announce(message);
-      } catch (error) {
-        textStatus(error.message);
-        announce(error.message);
-      }
+    try {
+      const copy = luaProject({...project, name, meta: metadata});
+      const result = JSON.parse(native.publishLuaProgram(original?.id || "", JSON.stringify(copy)));
+      if (result.error || !isLuaProgramId(result.id)) throw Error(result.error || "Could not publish the program.");
+      project.name = copy.name;
+      project.meta = copy.meta;
+      publishedId = result.id;
+      backup = JSON.stringify(project);
+      persist();
+      redrawDesign();
+      if (pane === "project") redrawProject();
+      refreshLuaPrograms();
+      const message = (original ? "Program updated in Start → Programs." : "Added to Start → Programs → Lua Programs.");
+      textStatus(message);
+      announce(message);
+    } catch (error) {
+      textStatus(error.message);
+      announce(error.message);
+    }
+  }
+
+  function publishProgram() {
+    const original = luaPrograms.get(publishedId);
+    nameDialog(original ? "Update Lua Program" : "Add to Programs", project.name,
+      name => publishAs(name));
+  }
+
+  // "Make Application" creates a versioned Start-menu Lua package, NOT an APK.
+  // Saved project format remains version 2 and older exports remain readable.
+  function makeApplication() {
+    if (!native?.publishLuaProgram) { textStatus("Publishing requires the Android launcher."); return; }
+    nameDialog("Make Application · Name", project.name, name => {
+      nameDialog("Make Application · Version", project.meta?.version || "1.0.0", version => {
+        if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(version)) {
+          textStatus("Version should look like 1.0.0."); return;
+        }
+        nameDialog("Make Application · Description", project.meta?.description || "Lua Studio application",
+          description => publishAs(name, {version, description: description.slice(0,160)}), 160);
+      }, 24);
     });
   }
 
@@ -1078,16 +1550,39 @@ function renderLuaStudio(win) {
     ["Open Project…", "folder", () => openFileLocation("projects")],
     ["Import Project…", "folder", () => native?.desktopFile?.("open-lua-project", "", "")],
     ["Save Project", "paper", () => saveFile("save-lua-project")],
+    ["Make Application…", "programs", makeApplication],
     ["Add to Programs…", "programs", publishProgram],
     ["Import Lua Source…", "folder", () => native?.desktopFile?.("import-lua-source", "", "")],
     ["Export Lua Source", "paper", () => saveFile("export-lua")],
     ["Export Project ZIP", "zip", () => saveFile("export-lua-zip")],
     null, ["Close", "", () => closeWindow(win.id)]
   ]);
+  const edit = windowMenu("Edit", [
+    ["Undo", "", () => travelHistory(-1)], ["Redo", "", () => travelHistory(1)],
+    null,
+    ["Cut Controls", "", () => copyControls(true)],
+    ["Copy Controls", "", () => copyControls()],
+    ["Paste Controls", "", pasteControls],
+    ["Delete Controls", "", deleteControl],
+    ["Create Control Array", "", createArray]
+  ]);
   const examples = windowMenu("Examples", [
     ["Click Counter", "calculator", () => switchProject(luaExample("counter"))],
     ["Hello Form", "lua", () => switchProject(luaExample("greeter"))],
-    ["Two-Form Project", "lua", () => switchProject(luaTwoFormExample())]
+    ["Event Playground", "lua", () => switchProject(luaExample("events"))],
+    ["Two-Form Project", "lua", () => switchProject(luaTwoFormExample())],
+    ["Control Arrays", "lua", () => switchProject(luaControlArrayExample())],
+    ["Modal Dialog", "lua", () => switchProject(luaModalExample())],
+    ["Common Controls", "lua", () => switchProject(luaCommonControlsExample())],
+    ["Common Dialogs", "lua", () => switchProject(luaDialogsExample())],
+    ["Pocket Notepad (Files)", "lua", () => switchProject(luaFilesExample())],
+    ["Reusable Class Demo", "lua", () => switchProject(luaClassExample())],
+    ["SQLite Address Book", "lua", () => switchProject(luaDatabaseExample())]
+  ]);
+  const sourceTools = windowMenu("Source", [
+    ["Complete Symbol…", "", () => { setPane("code"); showCompletion(); }],
+    ["Check Lexical Errors", "", () => { setPane("code"); showSourceDiagnostics(); }],
+    ["Jump to Function", "", () => { setPane("code"); procedures.focus(); }]
   ]);
   const help = windowMenu("Help", [
     ["Lua form events", "lua", () => showLuaHelp()],
@@ -1100,7 +1595,15 @@ function renderLuaStudio(win) {
       textStatus(multiSelect ? "Tap controls to add or remove them from the selection." : "Multiple selection disabled.");
     }],
     ["Align Left", "", () => arrangeControls("left")],
+    ["Align Right", "", () => arrangeControls("right")],
     ["Align Top", "", () => arrangeControls("top")],
+    ["Align Bottom", "", () => arrangeControls("bottom")],
+    ["Center Horizontally", "", () => arrangeControls("center-h")],
+    ["Center Vertically", "", () => arrangeControls("center-v")],
+    ["Space Horizontally", "", () => arrangeControls("distribute-horizontal")],
+    ["Space Vertically", "", () => arrangeControls("distribute-vertical")],
+    ["Make Same Width", "", () => arrangeControls("width")],
+    ["Make Same Height", "", () => arrangeControls("height")],
     ["Make Same Size", "", () => arrangeControls("size")],
     ["Duplicate", "", () => arrangeControls("duplicate")],
     ["Toggle Grid Snap", "", () => { snapToGrid = !snapToGrid; redrawDesign(false); }],
@@ -1130,7 +1633,7 @@ function renderLuaStudio(win) {
     ["Clear Watches", "", () => { watches = []; textStatus("Watches cleared for the next run."); }],
     ["Clear Breakpoints", "", () => { breakpoints.clear(); updateGutters(); textStatus("Breakpoints cleared."); }]
   ]);
-  menuBar.append(file, examples, layout, debug, help);
+  menuBar.append(file, edit, examples, layout, debug, sourceTools, help);
   const runButton = toolbarButton("Run", () => run());
   runButton.classList.add("lua-run");
   runButton.title = "Run (F5 or Ctrl+Enter)";
@@ -1163,13 +1666,17 @@ function renderLuaStudio(win) {
   code.setAttribute("aria-label", "Lua source");
   code.value = sourceDoc().code;
   code.addEventListener("input", codeChanged);
+  code.addEventListener("compositionstart", () => { highlightViewport.hidden = true; code.classList.remove("lua-highlight-enabled"); });
+  code.addEventListener("compositionend", () => {
+    highlightViewport.hidden = false; code.classList.add("lua-highlight-enabled"); updateHighlight();
+  });
   for (const event of ["select", "keyup", "blur"]) {
     code.addEventListener(event, () => { caretOffset = code.selectionStart; });
   }
   debug.addEventListener("pointerdown", () => {
     if (document.activeElement === code) caretOffset = code.selectionStart;
   });
-  code.addEventListener("scroll", () => { gutters.scrollTop = code.scrollTop; });
+  code.addEventListener("scroll", () => { gutters.scrollTop = code.scrollTop; updateHighlight(); });
   gutters.title = "Click a line number to toggle a breakpoint";
   gutters.addEventListener("click", event => {
     const top = parseFloat(getComputedStyle(gutters).paddingTop);
@@ -1177,15 +1684,70 @@ function renderLuaStudio(win) {
       codeLineHeight()) + 1;
     markLine(line);
   });
+  // Small-screen source editing: soft tabs, block indent/outdent and smart Enter.
+  // Never modify the file on a navigation key or inside an IME composition.
   code.addEventListener("keydown", event => {
-    if (event.key === "Tab" && !event.shiftKey) {
+    if (event.isComposing) return;
+    if ((event.ctrlKey || event.metaKey) && event.code === "Space") {
+      event.preventDefault(); showCompletion(); return;
+    }
+    if (event.key === "Escape" && !suggestionBar.hidden) {
+      event.preventDefault(); suggestionBar.hidden = true; return;
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.key === "Tab") {
       event.preventDefault();
-      if (code.value.length >= luaMaxCode - 2) return;
-      code.setRangeText("  ", code.selectionStart, code.selectionEnd, "end");
+      const a = code.selectionStart, b = code.selectionEnd;
+      const lineStart = code.value.lastIndexOf("\n", a - 1) + 1;
+      if (event.shiftKey && a === b) {
+        const prefix = code.value.slice(lineStart, a);
+        const remove = prefix.startsWith("  ") ? 2 : prefix.startsWith(" ") ? 1 : 0;
+        if (remove) code.setRangeText("", lineStart, lineStart + remove, "preserve");
+      } else if (a !== b && code.value.slice(a,b).includes("\n")) {
+        const blockStart = lineStart;
+        const blockEnd = code.value.indexOf("\n", b);
+        const end = blockEnd < 0 ? code.value.length : blockEnd;
+        const lines = code.value.slice(blockStart,end).split("\n");
+        const changed = lines.map(line => event.shiftKey ? line.replace(/^ {1,2}/, "") : "  " + line).join("\n");
+        if (code.value.length + changed.length - (end - blockStart) > luaMaxCode) return;
+        code.setRangeText(changed, blockStart, end, "select");
+      } else if (!event.shiftKey && code.value.length < luaMaxCode - 2) {
+        code.setRangeText("  ", a, b, "end");
+      }
       codeChanged();
+    } else if (event.key === "Enter" && aNonEmptyLineBeforeCaret(code)) {
+      event.preventDefault();
+      const a = code.selectionStart, b = code.selectionEnd;
+      const line = code.value.slice(code.value.lastIndexOf("\n", a-1)+1, a);
+      const indent = (line.match(/^[ \t]*/) || [""])[0];
+      const blockStart = /^\s*(?:function\b|if\b.*\bthen\s*$|for\b.*\bdo\s*$|while\b.*\bdo\s*$|repeat\b|else\s*$|elseif\b.*\bthen\s*$)/.test(line);
+      const addition = "\n" + indent + (blockStart ? "  " : "");
+      if (code.value.length + addition.length - (b - a) <= luaMaxCode) {
+        code.setRangeText(addition, a, b, "end");
+        codeChanged();
+      }
     }
   });
   win.node.addEventListener("keydown", event => {
+    const command = event.ctrlKey || event.metaKey;
+    const key = event.key.toLowerCase();
+    if (command && !event.altKey && ((key === "z" && !event.shiftKey) || key === "y" ||
+        (key === "z" && event.shiftKey)) &&
+        (pane === "code" || pane === "design") &&
+        (document.activeElement === code || document.activeElement === artboard ||
+          document.activeElement === win.node || document.activeElement?.classList.contains("lua-design-control"))) {
+      event.preventDefault();
+      travelHistory(key === "z" && !event.shiftKey ? -1 : 1);
+      return;
+    }
+    if (command && pane === "design" && ["c", "x", "v"].includes(key) &&
+        !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) {
+      event.preventDefault();
+      if (key === "c") copyControls();
+      if (key === "x") copyControls(true);
+      if (key === "v") pasteControls();
+      return;
+    }
     if (event.key === "F5" || ((event.ctrlKey || event.metaKey) && event.key === "Enter")) {
       event.preventDefault();
       run();
@@ -1221,9 +1783,13 @@ function renderLuaStudio(win) {
       textStatus("Ready");
     }
   });
-  const openEvent = toolbarButton("Open Event", () => editHandler(objects.value));
-  actions.append(codeCaption, objects, openEvent);
-  objects.addEventListener("change", () => { method = objects.value; });
+  const openEvent = toolbarButton("Open Event", () => editHandler(objects.value + "_" + eventKinds.value));
+  actions.append(codeCaption, objects, eventKinds, openEvent, procedures);
+  objects.addEventListener("change", () => {
+    method = objects.value + "_" + (objects.value === "Form" ? "Load" : "Click");
+    redrawMethods();
+  });
+  eventKinds.addEventListener("change", () => { method = objects.value + "_" + eventKinds.value; });
   const source = element("div", "lua-source");
   gutters.setAttribute("aria-hidden", "true");
   const findRow = element("div", "app-toolbar lua-find-bar");
@@ -1262,8 +1828,21 @@ function renderLuaStudio(win) {
     findRow.hidden = !findRow.hidden;
     if (!findRow.hidden) findText.focus();
   }));
-  source.append(gutters, code);
-  editor.append(actions, findRow, source, debugPanel);
+  actions.append(toolbarButton("Suggest", () => { setPane("code"); showCompletion(); }),
+    toolbarButton("Check", showSourceDiagnostics));
+  procedures.addEventListener("change", () => {
+    const offset = Number(procedures.value);
+    if (procedures.value) {
+      code.focus(); code.setSelectionRange(offset, offset);
+      scrollToCodeLine(code.value.slice(0, offset).split("\n").length);
+    }
+  });
+  codeStack.append(highlightViewport, code);
+  source.append(gutters, codeStack);
+  editor.append(actions, findRow, suggestionBar, syntaxReport, source, debugPanel);
+  code.classList.add("lua-highlight-enabled");
+  refreshProcedures(true);
+  updateHighlight();
   immediate.textContent = "Output from print() and Lua errors appear here.";
   chrome.append(menuBar, toolbar);
   shell.append(chrome, tabs, explorer, designer, menuEditor, editor, immediate, status);
@@ -1316,6 +1895,7 @@ function renderLuaStudio(win) {
   syncSource();
   updateToolSelection();
   setPane("design");
+  resetHistory();
 }
 
 function showLuaHelp() {
@@ -1323,7 +1903,20 @@ function showLuaHelp() {
     message: "Tap a Toolbox control and then tap the form. Drag a placed control or its resize handle. " +
       "Double-click a control or choose its event in Properties to write a handler. " +
       "Use ui.get(name[, property]) and ui.set(name[, property], value). Properties are text, checked, value, enabled, and visible. " +
-      "Use print() for Immediate output and ui.message() for a message. Press Run to test your form.",
+      "Use print() for Immediate output and ui.message() for a message. The Code pane has VB6-style Object and Event selectors. " +
+      "Change(value) receives the changed value. KeyDown(event), MouseDown(event), and DblClick(event) receive " +
+      "an event table with key, code, x, y, button, shift, ctrl, and alt where applicable. " +
+      "TreeView, ListView, TabStrip and Toolbar use an Items list and Value selection; StatusBar uses Text. " +
+      "Use ui.setItems(name, newlineSeparatedItems) to replace selectable options. " +
+      "Use files.read(name), files.write(name,text), files.list(), files.remove(name); " +
+      "handle Form_FileResult(event) for asynchronous results. " +
+      "ListView supports up to four tab-separated column headings via ui.setColumns. " +
+      "ui.dialog(kind, title, message, defaultValue) opens a nonblocking message, confirm, input or color dialog. " +
+      "Handle Form_DialogResult(event) with event.id, event.kind, event.accepted and event.value. " +
+      "Use Edit for designer Undo, Redo, Copy, and Paste. Control arrays share one handler: " +
+      "Buttons_Click(index, event). Use ui.getAt(array, index, property) or " +
+      "ui.setAt(array, index, property, value). ui.showModal(form) displays a modal window " +
+      "without blocking Lua execution. Press Run to test your form.",
     accept: "OK", onAccept: () => {}});
 }
 
@@ -1343,7 +1936,25 @@ function showLuaBrowser(studio) {
     ["ui.show(form)", "Show a named form. Form_Load runs on first show and Form_Activate runs on each show."],
     ["ui.hide(form)", "Hide a form and preserve its Lua state. Omit the name for the current form."],
     ["ui.unload(form)", "Call Form_Unload and reset the form. Omit the name for the current form."],
-    ["ui.message(text)", "Show a message in the preview and log it to Immediate."],
+    ["ui.getAt(array, index, property, form)", "Read one member of a control array. Omit property to read its main value; form is optional."],
+    ["ui.setAt(array, index, property, value, form)", "Set one indexed control member. For example, ui.setAt('Buttons', 0, 'text', 'Go')."],
+    ["ui.showModal(form)", "Show a form and prevent input to other forms in this Lua project until the modal is hidden or unloaded. Non-blocking for Lua scripts."],
+    ["Control arrays", "Select a control and choose Create Control Array. Duplicate it for new indexes. Use shared handlers, e.g. Buttons_Click(index, event)."],
+    ["ui.message(text)", "Write a nonmodal message to the preview status and Immediate."],
+    ["ui.dialog(kind, title, message, defaultValue)", "Open message, confirm, input, or color dialog. Returns a request ID; handle Form_DialogResult(event)."],
+    ["Form_DialogResult(event)", "Async dialog result: event.id, event.kind, event.accepted, event.value. No blocking or synchronous return."],
+    ["ui.getItems(name, form)", "Return newline-separated items for a ListBox, ComboBox, TreeView, ListView, TabStrip or Toolbar."],
+    ["files.read(name), files.write(name, text)", "Private .txt/.csv/.json files (16 KiB max). Reply arrives in Form_FileResult(event)."],
+    ["files.list(), files.remove(name)", "List or remove files in the app namespace. Preview storage is temporary."],
+    ["ui.getColumns(name), ui.setColumns(name, headers)", "ListView column headings, separated by tabs; at most four."],
+    ["ui.setItems(name, text, form)", "Replace a selectable control's items with newline-separated names (up to 24)."],
+    ["store.get(key), store.set(key, value), store.remove(key)", "Per-program small string settings store. Persisted for published Lua programs, temporary in Studio Run."],
+    ["db.exec(sql, ...args)", "Parameterized CREATE TABLE, INSERT, UPDATE and DELETE in a private SQLite database."],
+    ["db.query(sql, ...args)", "SELECT up to 24 rows; result arrives in Form_DatabaseResult(event)."],
+    ["*_Change(value)", "Changed text, checkbox, selection or scrollbar. First argument is the new value."],
+    ["*_KeyDown(event)", "Keyboard event table: key, code, shift, ctrl, alt."],
+    ["*_MouseDown(event)", "Pointer event table: x, y, button, shift, ctrl, alt."],
+    ["*_DblClick(event)", "Double-click handler with pointer information."],
     ["print(…)", "Write text and values to Immediate."],
     ["shared", "A Lua table shared across the project’s modules and forms."]
   ];

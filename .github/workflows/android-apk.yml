@@ -2,8 +2,10 @@ name: Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'testing/lua-studio-phase6-replacement']
     tags: ['v*']
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -18,10 +20,12 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
-      - uses: android-actions/setup-android@v3
+          java-version: '21'
       - name: Install Android SDK
-        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.1"
+        run: |
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "platforms;android-35" "build-tools;35.0.1"
       - name: Configure signing (optional)
         shell: bash
         env:

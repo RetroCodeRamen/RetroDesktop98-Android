@@ -987,6 +987,24 @@ public class DesktopActivity extends Activity {
             preferences.edit().putString("lua-project", data).putString("lua-workspace-program", id).apply();
         }
 
+        // Lua file operations are capped, scoped and validated on the native side.
+        @JavascriptInterface
+        public String luaWorkspaceFile(String action, String program, String name, String text) {
+            return LuaProjectFiles.operate(DesktopActivity.this, program,
+                    action == null ? "" : action, name, text).toString();
+        }
+
+        // SQLite calls use a per-program database, never the launcher's database.
+        @JavascriptInterface
+        public String luaDatabase(String session, String program, String action, String sql, String parameters) {
+            return LuaProjectDatabase.operate(DesktopActivity.this, session, program, action, sql, parameters).toString();
+        }
+
+        @JavascriptInterface
+        public void luaDatabaseClose(String session) {
+            LuaProjectDatabase.closeSession(session);
+        }
+
         @JavascriptInterface
         public String loadLuaProject() {
             return preferences.getString("lua-project", "");

@@ -18,6 +18,7 @@ import org.luaj.vm2.lib.OneArgFunction;
 
 import java.util.ArrayDeque;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -38,7 +39,16 @@ final class LuaStudioRuntime {
     private JSONArray output;
     private JSONObject patches;
     private JSONArray presentation;
+    private JSONArray dialogs;
+    private JSONArray fileRequests;
+    private JSONArray databaseRequests;
+    private int databaseSequence;
+    private int fileSequence;
+    private int dialogSequence;
+    private final Map<String, String> storage = new LinkedHashMap<>();
+    private boolean storageDirty;
     private final ArrayDeque<Navigation> requests = new ArrayDeque<>();
+    private final ArrayDeque<Form> modalStack = new ArrayDeque<>();
     private String message;
     private int patchCount;
 
@@ -48,6 +58,16 @@ final class LuaStudioRuntime {
 
     LuaStudioRuntime(JSONObject project, LuaStudioDebugger debugger) throws JSONException {
         this.debugger = debugger;
+        JSONObject prior = project.optJSONObject("_store");
+        if (prior != null) {
+            java.util.Iterator<String> keys = prior.keys();
+            while (keys.hasNext() && storage.size() < 32) {
+                String key = keys.next();
+                Object stored = prior.opt(key);
+                if (key.matches("[A-Za-z][A-Za-z0-9_-]{0,31}") && stored instanceof String &&
+                    ((String) stored).length() <= 256) storage.put(key, (String) stored);
+            }
+        }
         JSONArray definitions = project.optJSONArray("forms");
         legacy = definitions == null;
         if (legacy) {
@@ -80,6 +100,7 @@ final class LuaStudioRuntime {
 
     JSONObject start(String initialSource) throws JSONException {
         begin();
+        modalStack.clear();
         try {
             current = startup;
             moduleEnv = setup(null);
@@ -103,7 +124,8 @@ final class LuaStudioRuntime {
         begin();
         try {
             Form receiver = forms.get(input.optString("form", startup.name));
-            if (receiver == null || !receiver.open) return result("", false);
+            if (receiver == null || !receiver.open ||
+                    (!modalStack.isEmpty() && modalStack.peekLast() != receiver)) return result("", false);
             current = receiver;
             JSONObject updates = input.optJSONObject("updates");
             if (updates != null) applyInputs(updates);
@@ -114,9 +136,13 @@ final class LuaStudioRuntime {
                 requests.add(new Navigation("unload", receiver));
             } else if ("Menu".equals(action) && receiver.menuItems.contains(name)) {
                 invoke(name + "_Click", LuaValue.NIL);
+            } else if (name.isEmpty() && isFormEvent(action)) {
+                invoke("Form_" + action, eventDetails(input));
             } else if (control != null && control.get("enabled").toboolean() && control.fires(action)) {
-                invoke(name + "_" + action, control.inputProperty() == null
-                        ? LuaValue.NIL : control.get(control.inputProperty()));
+                LuaValue value = "Change".equals(action) && control.inputProperty() != null
+                        ? control.get(control.inputProperty()) : eventDetails(input);
+                if (!control.arrayName.isEmpty()) invokeArray(control.arrayName + "_" + action, control.arrayIndex, value);
+                else invoke(name + "_" + action, value);
             }
             navigate();
             return result("", false);
@@ -125,6 +151,30 @@ final class LuaStudioRuntime {
         } catch (LuaStudioDebugger.Limit limit) {
             return result(limit.getMessage(), true);
         }
+    }
+
+    // Event arguments are explicit, bounded scalar fields—not arbitrary JSON converted
+    // into Lua objects. The engine remains sandboxed from Android and Java reflection.
+    private static LuaValue eventDetails(JSONObject input) {
+        JSONObject raw = input.optJSONObject("args");
+        if (raw == null) return LuaValue.NIL;
+        LuaTable values = new LuaTable();
+        for (String key : new String[]{"x", "y", "button", "id", "count"}) {
+            if (raw.has(key)) values.set(key, LuaValue.valueOf(Math.max("id".equals(key) ? 0 : -4096, Math.min("id".equals(key) ? 1000000 : 4096, raw.optInt(key)))));
+        }
+        for (String key : new String[]{"shift", "ctrl", "alt", "accepted", "ok"}) {
+            if (raw.has(key)) values.set(key, LuaValue.valueOf(raw.optBoolean(key)));
+        }
+        for (String key : new String[]{"key", "code", "kind", "value", "name", "action", "error", "text", "columns"}) {
+            if (raw.has(key)) values.set(key, LuaValue.valueOf(shorten(raw.optString(key), "text".equals(key) ? 16384 : "error".equals(key) ? 180 : "value".equals(key) ? 100 : "columns".equals(key) ? 110 : 40)));
+        }
+        return values;
+    }
+
+    private static boolean isFormEvent(String action) {
+        return "Click".equals(action) || "DblClick".equals(action) || "MouseDown".equals(action)
+                || "MouseUp".equals(action) || "KeyDown".equals(action) || "KeyUp".equals(action)
+                || "DialogResult".equals(action) || "FileResult".equals(action) || "DatabaseResult".equals(action);
     }
 
     private void applyInputs(JSONObject updates) throws JSONException {
@@ -161,14 +211,20 @@ final class LuaStudioRuntime {
             Form target = operation.form;
             current = target;
             switch (operation.action) {
+                case "modal":
                 case "show":
                     if (target.scope == null) load(target, source(target.definition.getString("code")));
                     target.open = true;
-                    presentation.put(change("show", target.name));
+                    if ("modal".equals(operation.action)) {
+                        modalStack.remove(target);
+                        modalStack.addLast(target);
+                    }
+                    presentation.put(change(operation.action, target.name));
                     invoke("Form_Activate", LuaValue.NIL);
                     break;
                 case "hide":
                     target.open = false;
+                    modalStack.remove(target);
                     presentation.put(change("hide", target.name));
                     break;
                 case "unload":
@@ -176,6 +232,7 @@ final class LuaStudioRuntime {
                         if (target.scope != null) invoke("Form_Unload", LuaValue.NIL);
                     } finally {
                         target.open = false;
+                        modalStack.remove(target);
                         target.scope = null;
                         target.reset();
                         patches.remove(target.name);
@@ -228,6 +285,63 @@ final class LuaStudioRuntime {
                 return control.get(args.optjstring(2, control.defaultProperty()));
             }
         });
+        ui.set("getAt", new VarArgFunction() {
+            @Override public Varargs invoke(Varargs args) {
+                Form form = lookup(args.arg(4));
+                Control control = form.arrayControl(args.checkjstring(1), args.checkint(2));
+                return control.get(args.optjstring(3, control.defaultProperty()));
+            }
+        });
+        ui.set("setAt", new VarArgFunction() {
+            @Override public Varargs invoke(Varargs args) {
+                Form form = lookup(args.arg(5));
+                String array = args.checkjstring(1);
+                int index = args.checkint(2);
+                Control control = form.arrayControl(array, index);
+                String property = args.checkjstring(3);
+                control.set(property, args.arg(4));
+                String physicalName = form.arrayPhysicalName(array, index);
+                patch(form, physicalName, property, control.get(property));
+                if ("option".equals(control.type) && "checked".equals(property) && control.get("checked").toboolean()) {
+                    uncheckPeers(form, control);
+                }
+                return LuaValue.NONE;
+            }
+        });
+        ui.set("getItems", new VarArgFunction() {
+            @Override public Varargs invoke(Varargs args) {
+                return LuaValue.valueOf(lookup(args.arg(2)).control(args.checkjstring(1)).itemText());
+            }
+        });
+        ui.set("getColumns", new VarArgFunction() {
+            @Override public Varargs invoke(Varargs args) {
+                Control control = lookup(args.arg(2)).control(args.checkjstring(1));
+                if (!"listview".equals(control.type)) throw new LuaError("Only ListView supports columns.");
+                return LuaValue.valueOf(String.join("\t", control.columns));
+            }
+        });
+        ui.set("setColumns", new VarArgFunction() {
+            @Override public Varargs invoke(Varargs args) {
+                Form form = lookup(args.arg(3));
+                String name = args.checkjstring(1);
+                Control control = form.control(name);
+                control.setColumns(args.checkjstring(2));
+                patchColumns(form, name, control);
+                return LuaValue.NONE;
+            }
+        });
+        ui.set("setItems", new VarArgFunction() {
+            @Override public Varargs invoke(Varargs args) {
+                Form form = lookup(args.arg(3));
+                String name = args.checkjstring(1);
+                Control control = form.control(name);
+                String options = args.checkjstring(2);
+                control.setItems(options);
+                patchItems(form, name, control);
+                patch(form, name, "value", control.get("value"));
+                return LuaValue.NONE;
+            }
+        });
         ui.set("set", new VarArgFunction() {
             @Override public Varargs invoke(Varargs args) {
                 Form form = lookup(args.arg(4));
@@ -242,15 +356,43 @@ final class LuaStudioRuntime {
                 return LuaValue.NIL;
             }
         });
-        for (String action : new String[]{"show", "hide", "unload"}) {
+        // showModal is asynchronous: it disables other Lua form windows, but does
+        // not synchronously block the isolated Lua event handler like VB6 vbModal.
+        for (String action : new String[]{"show", "showModal", "hide", "unload"}) {
             ui.set(action, new OneArgFunction() {
                 @Override public LuaValue call(LuaValue supplied) {
                     if (requests.size() >= 20) throw new LuaStudioDebugger.Limit("Lua issued too many form commands.");
-                    requests.add(new Navigation(action, lookup(supplied)));
+                    requests.add(new Navigation("showModal".equals(action) ? "modal" : action, lookup(supplied)));
                     return LuaValue.NIL;
                 }
             });
         }
+        // Dialogs are nonblocking. Lua receives Form_DialogResult(event) on the
+        // originating form after the user responds; we never run Lua on the UI thread.
+        ui.set("dialog", new VarArgFunction() {
+            @Override public Varargs invoke(Varargs args) {
+                String kind = args.checkjstring(1).toLowerCase(java.util.Locale.ROOT);
+                if (!("message".equals(kind) || "confirm".equals(kind) ||
+                      "input".equals(kind) || "color".equals(kind) ||
+                      "open".equals(kind) || "save".equals(kind))) {
+                    throw new LuaError("Dialog kind must be message, confirm, input, color, open, or save.");
+                }
+                if (dialogs.length() >= 3) throw new LuaStudioDebugger.Limit("Too many dialogs in one event.");
+                String title = formText(args.optjstring(2, "Dialog"), 60);
+                String body = formText(args.optjstring(3, ""), 250);
+                String suggested = formText(args.optjstring(4, ""), 100);
+                if ("color".equals(kind) && !suggested.matches("#[0-9a-fA-F]{6}")) suggested = "#008080";
+                int id = ++dialogSequence;
+                try {
+                    dialogs.put(new JSONObject().put("id", id).put("kind", kind)
+                        .put("form", current.name).put("title", title.isEmpty() ? "Dialog" : title)
+                        .put("message", body).put("defaultValue", suggested));
+                } catch (JSONException error) {
+                    throw new LuaError("Dialog could not be created.");
+                }
+                return LuaValue.valueOf(id);
+            }
+        });
         ui.set("message", new OneArgFunction() {
             @Override public LuaValue call(LuaValue supplied) {
                 String text = formText(supplied.tojstring(), MAX_TEXT);
@@ -259,6 +401,80 @@ final class LuaStudioRuntime {
                 return LuaValue.NIL;
             }
         });
+        LuaTable store = new LuaTable();
+        store.set("get", new OneArgFunction() {
+            @Override public LuaValue call(LuaValue supplied) {
+                String key = storageKey(supplied.checkjstring());
+                String value = storage.get(key);
+                return value == null ? LuaValue.NIL : LuaValue.valueOf(value);
+            }
+        });
+        store.set("set", new VarArgFunction() {
+            @Override public Varargs invoke(Varargs args) {
+                String key = storageKey(args.checkjstring(1));
+                String value = formText(args.checkjstring(2), 256);
+                if (args.checkjstring(2).length() > 256) throw new LuaError("Stored values cannot exceed 256 characters.");
+                if (!storage.containsKey(key) && storage.size() >= 32)
+                    throw new LuaError("A project can store up to 32 keys.");
+                storage.put(key, value);
+                storageDirty = true;
+                return LuaValue.NONE;
+            }
+        });
+        store.set("remove", new OneArgFunction() {
+            @Override public LuaValue call(LuaValue supplied) {
+                if (storage.remove(storageKey(supplied.checkjstring())) != null) storageDirty = true;
+                return LuaValue.NIL;
+            }
+        });
+        // File calls are deliberately asynchronous, just like CommonDialog. LuaJ
+        // never accesses Android's filesystem from its isolated process.
+        LuaTable files = new LuaTable();
+        for (String action : new String[]{"read", "write", "list", "remove"}) {
+            files.set(action, new VarArgFunction() {
+                @Override public Varargs invoke(Varargs args) {
+                    if (fileRequests.length() >= 4) throw new LuaError("Too many file operations in one event.");
+                    String name = "list".equals(action) ? "" : fileName(args.checkjstring(1));
+                    String text = "write".equals(action) ? args.checkjstring(2) : "";
+                    if (text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 16384)
+                        throw new LuaError("A file cannot exceed 16 KiB.");
+                    int id = ++fileSequence;
+                    try {
+                        fileRequests.put(new JSONObject().put("id", id).put("form", current.name)
+                                .put("action", action).put("name", name).put("text", text));
+                    } catch (JSONException error) { throw new LuaError("Could not create file request."); }
+                    return LuaValue.valueOf(id);
+                }
+            });
+        }
+        // Database access is always asynchronous. The isolated LuaJ process only
+        // emits bounded SQL requests; the host owns its private SQLite files.
+        LuaTable db = new LuaTable();
+        for (String operation : new String[]{"exec", "query"}) {
+            db.set(operation, new VarArgFunction() {
+                @Override public Varargs invoke(Varargs args) {
+                    if (databaseRequests.length() >= 4) throw new LuaError("Too many database requests in one event.");
+                    String sql = args.checkjstring(1);
+                    if (sql.length() == 0 || sql.length() > 2048) throw new LuaError("SQL must contain 1–2048 characters.");
+                    if (args.narg() > 5) throw new LuaError("At most four SQL arguments are allowed.");
+                    JSONArray parameters = new JSONArray();
+                    for (int i = 2; i <= args.narg(); i++) {
+                        String value = args.arg(i).tojstring();
+                        if (value.length() > 512) throw new LuaError("SQL argument is too long.");
+                        parameters.put(value);
+                    }
+                    int id = ++databaseSequence;
+                    try {
+                        databaseRequests.put(new JSONObject().put("id", id).put("form", current.name)
+                                .put("action", operation).put("sql", sql).put("params", parameters));
+                    } catch (JSONException error) { throw new LuaError("Could not create a database request."); }
+                    return LuaValue.valueOf(id);
+                }
+            });
+        }
+        env.set("db", db);
+        env.set("files", files);
+        env.set("store", store);
         env.set("ui", ui);
         env.set("print", new VarArgFunction() {
             @Override public Varargs invoke(Varargs values) {
@@ -272,6 +488,46 @@ final class LuaStudioRuntime {
             }
         });
         return env;
+    }
+
+    private void patchColumns(Form form, String name, Control control) {
+        if (++patchCount > 100) throw new LuaStudioDebugger.Limit("Too many control updates.");
+        try {
+            JSONObject page = patches.optJSONObject(form.name);
+            if (page == null) { page = new JSONObject(); patches.put(form.name, page); }
+            JSONObject changed = page.optJSONObject(name);
+            if (changed == null) { changed = new JSONObject(); page.put(name, changed); }
+            JSONArray values = new JSONArray();
+            for (String item : control.columns) values.put(item);
+            changed.put("columns", values);
+        } catch (JSONException error) { throw new LuaError("Could not update columns."); }
+    }
+
+    private void patchItems(Form form, String name, Control control) {
+        if (++patchCount > 100) throw new LuaStudioDebugger.Limit("Lua issued too many control updates in one event.");
+        try {
+            JSONObject page = patches.optJSONObject(form.name);
+            if (page == null) { page = new JSONObject(); patches.put(form.name, page); }
+            JSONObject changed = page.optJSONObject(name);
+            if (changed == null) { changed = new JSONObject(); page.put(name, changed); }
+            JSONArray items = new JSONArray();
+            for (String item : control.choices) items.put(item);
+            changed.put("items", items);
+        } catch (JSONException error) {
+            throw new LuaError("Could not update list items.");
+        }
+    }
+
+    private static String fileName(String name) {
+        if (!name.matches("[A-Za-z][A-Za-z0-9_-]{0,31}\\.(txt|csv|json)"))
+            throw new LuaError("Use a simple .txt, .csv, or .json filename without folders.");
+        return name;
+    }
+
+    private static String storageKey(String key) {
+        if (!key.matches("[A-Za-z][A-Za-z0-9_-]{0,31}"))
+            throw new LuaError("Storage keys must start with a letter and contain only letters, digits, _ or -.");
+        return key;
     }
 
     private void uncheckPeers(Form form, Control choice) {
@@ -317,9 +573,21 @@ final class LuaStudioRuntime {
         output = new JSONArray();
         patches = new JSONObject();
         presentation = new JSONArray();
+        dialogs = new JSONArray();
+        fileRequests = new JSONArray();
+        databaseRequests = new JSONArray();
         requests.clear();
         message = "";
         patchCount = 0;
+    }
+
+    private void invokeArray(String name, int index, LuaValue value) {
+        LuaValue handler = current.scope.rawget(name);
+        if (handler.isnil()) return;
+        if (!handler.isfunction()) throw new LuaError(name + " must be a function.");
+        LuaValue first = LuaValue.valueOf(index);
+        if (value.isnil()) handler.call(first);
+        else handler.call(first, value);
     }
 
     private void invoke(String name, LuaValue value) {
@@ -332,9 +600,16 @@ final class LuaStudioRuntime {
 
     private JSONObject result(String error, boolean ended) throws JSONException {
         JSONObject changed = legacy ? patches.optJSONObject(startup.name) : patches;
-        return new JSONObject().put("output", output).put("patches", changed == null ? new JSONObject() : changed)
-                .put("message", message).put("navigation", presentation)
-                .put("error", shorten(error, 5000)).put("ended", ended);
+        JSONObject result = new JSONObject().put("output", output).put("patches", changed == null ? new JSONObject() : changed)
+                .put("message", message).put("navigation", presentation).put("dialogs", dialogs).put("files", fileRequests)
+                .put("database", databaseRequests).put("error", shorten(error, 5000)).put("ended", ended);
+        if (storageDirty) {
+            JSONObject saved = new JSONObject();
+            for (Map.Entry<String, String> item : storage.entrySet()) saved.put(item.getKey(), item.getValue());
+            result.put("storage", saved);
+            storageDirty = false;
+        }
+        return result;
     }
 
     private static String identifier(String name) {
@@ -382,6 +657,8 @@ final class LuaStudioRuntime {
         final JSONObject definition;
         final Map<String, Control> controls = new LinkedHashMap<>();
         final Set<String> menuItems = new HashSet<>();
+        final Map<String, Set<Integer>> arrayIndexes = new LinkedHashMap<>();
+        final Map<String, String> arrayTypes = new LinkedHashMap<>();
         Globals scope;
         boolean open;
 
@@ -409,6 +686,8 @@ final class LuaStudioRuntime {
 
         void reset() throws JSONException {
             controls.clear();
+            arrayIndexes.clear();
+            arrayTypes.clear();
             Set<String> radioGroups = new HashSet<>();
             JSONArray definitions = definition.getJSONArray("controls");
             if (definitions.length() > MAX_CONTROLS) throw new IllegalArgumentException("Too many controls.");
@@ -420,7 +699,31 @@ final class LuaStudioRuntime {
                     control.set("checked", LuaValue.FALSE);
                 }
                 if (controls.put(key, control) != null) throw new IllegalArgumentException("Duplicate control name.");
+                if (!control.arrayName.isEmpty()) {
+                    String previousType = arrayTypes.putIfAbsent(control.arrayName, control.type);
+                    if (previousType != null && !previousType.equals(control.type))
+                        throw new IllegalArgumentException("Control array mixes control types.");
+                    Set<Integer> members = arrayIndexes.computeIfAbsent(control.arrayName, ignored -> new HashSet<>());
+                    if (!members.add(control.arrayIndex)) throw new IllegalArgumentException("Duplicate control array index.");
+                }
             }
+            for (String arrayName : arrayIndexes.keySet()) {
+                if (controls.containsKey(arrayName)) throw new IllegalArgumentException("Control array shadows a control.");
+            }
+        }
+
+        String arrayPhysicalName(String arrayName, int index) {
+            if (arrayName.isEmpty() || !arrayIndexes.containsKey(arrayName))
+                throw new LuaError("Unknown control array.");
+            for (Map.Entry<String, Control> entry : controls.entrySet()) {
+                Control control = entry.getValue();
+                if (control.arrayName.equals(arrayName) && control.arrayIndex == index) return entry.getKey();
+            }
+            throw new LuaError("Unknown control array member.");
+        }
+
+        Control arrayControl(String name, int index) {
+            return control(arrayPhysicalName(name, index));
         }
 
         Control control(String name) {
@@ -433,15 +736,22 @@ final class LuaStudioRuntime {
     private static final class Control {
         final String type;
         final String group;
+        final String arrayName;
+        final int arrayIndex;
         private final Map<String, LuaValue> values = new LinkedHashMap<>();
-        private final Set<String> choices = new HashSet<>();
+        private final Set<String> choices = new LinkedHashSet<>();
+        private final java.util.List<String> columns = new java.util.ArrayList<>();
         private final int min;
         private final int max;
 
         Control(JSONObject definition) throws JSONException {
             type = definition.getString("type");
             group = shorten(definition.optString("group", "Group1"), 32);
-            if (!type.matches("label|button|text|multiline|check|option|combo|list|frame|hscroll|vscroll|progress|timer|shape|line|image|picture")) {
+            arrayName = definition.optString("arrayName", "");
+            if (!arrayName.isEmpty()) identifier(arrayName);
+            arrayIndex = arrayName.isEmpty() ? 0 : definition.optInt("arrayIndex", -1);
+            if (arrayIndex < 0 || arrayIndex > 255) throw new IllegalArgumentException("Invalid array index.");
+            if (!type.matches("label|button|text|multiline|check|option|combo|list|frame|hscroll|vscroll|progress|timer|shape|line|image|picture|treeview|listview|tabstrip|toolbar|statusbar")) {
                 throw new IllegalArgumentException("Unknown control type.");
             }
             min = clamp(definition.optInt("min", 0), -10000, 9999);
@@ -450,10 +760,15 @@ final class LuaStudioRuntime {
             if (options != null) for (int index = 0; index < Math.min(24, options.length()); index++) {
                 choices.add(formText(options.getString(index), 60));
             }
+            JSONArray headings = "listview".equals(type) ? definition.optJSONArray("columns") : null;
+            if (headings != null) for (int index = 0; index < Math.min(4, headings.length()); index++) {
+                String heading = formText(headings.optString(index), 24).trim();
+                if (!heading.isEmpty()) columns.add(heading);
+            }
             values.put("visible", LuaValue.valueOf(definition.optBoolean("visible", true)));
             values.put("enabled", LuaValue.valueOf(definition.optBoolean("enabled", !"timer".equals(type))));
             if (type.matches("check|option")) values.put("checked", LuaValue.valueOf(definition.optBoolean("checked")));
-            if (type.matches("list|combo")) {
+            if (type.matches("list|combo|treeview|listview|tabstrip|toolbar")) {
                 String option = formText(definition.optString("value"), 60);
                 values.put("value", LuaValue.valueOf(choices.contains(option) ? option : ""));
             } else if (type.matches("hscroll|vscroll|progress")) {
@@ -465,17 +780,59 @@ final class LuaStudioRuntime {
 
         String defaultProperty() {
             if (type.matches("check|option")) return "checked";
-            if (type.matches("list|combo|hscroll|vscroll|progress")) return "value";
+            if (type.matches("list|combo|treeview|listview|tabstrip|toolbar|hscroll|vscroll|progress")) return "value";
             return type.equals("timer") ? "interval" : "text";
         }
 
         String inputProperty() {
-            return type.matches("check|option|text|multiline|list|combo|hscroll|vscroll") ? defaultProperty() : null;
+            return type.matches("check|option|text|multiline|list|combo|treeview|listview|tabstrip|toolbar|hscroll|vscroll") ? defaultProperty() : null;
         }
 
         boolean fires(String action) {
-            return ("Click".equals(action) && "button".equals(type)) || ("Timer".equals(action) && "timer".equals(type))
-                    || ("Change".equals(action) && inputProperty() != null);
+            if ("Timer".equals(action)) return "timer".equals(type);
+            if ("Change".equals(action)) return inputProperty() != null;
+            if ("timer".equals(type)) return false;
+            if ("Click".equals(action) || "DblClick".equals(action) ||
+                    "MouseDown".equals(action) || "MouseUp".equals(action)) return true;
+            return ("GotFocus".equals(action) || "LostFocus".equals(action) ||
+                    "KeyDown".equals(action) || "KeyUp".equals(action)) &&
+                    type.matches("button|text|multiline|check|option|combo|list|treeview|listview|tabstrip|toolbar|hscroll|vscroll");
+        }
+
+        String itemText() {
+            if (!type.matches("list|combo|treeview|listview|tabstrip|toolbar"))
+                throw new LuaError("This control has no items.");
+            return String.join("\n", choices);
+        }
+
+        void setItems(String source) {
+            if (!type.matches("list|combo|treeview|listview|tabstrip|toolbar"))
+                throw new LuaError("This control has no items.");
+            if (source.length() > 1500) throw new LuaError("The item list is too long.");
+            Set<String> fresh = new LinkedHashSet<>();
+            for (String item : source.split("\\n", -1)) {
+                String value = formText(item.trim(), 60);
+                if (!value.isEmpty()) fresh.add(value);
+                if (fresh.size() > 24) throw new LuaError("A list can contain up to 24 items.");
+            }
+            choices.clear();
+            choices.addAll(fresh);
+            String currentValue = values.get("value").tojstring();
+            if (!choices.contains(currentValue)) {
+                values.put("value", LuaValue.valueOf(choices.isEmpty() ? "" : choices.iterator().next()));
+            }
+        }
+
+        void setColumns(String source) {
+            if (!"listview".equals(type)) throw new LuaError("Only ListView supports columns.");
+            if (source.length() > 150) throw new LuaError("Column headings are too long.");
+            String[] labels = source.split("\\t", -1);
+            if (labels.length > 4) throw new LuaError("Use at most four column headings.");
+            columns.clear();
+            for (String label : labels) {
+                String heading = formText(label, 24).trim();
+                if (!heading.isEmpty()) columns.add(heading);
+            }
         }
 
         LuaValue get(String property) {

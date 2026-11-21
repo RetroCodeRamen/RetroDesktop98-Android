@@ -33,8 +33,12 @@ final class LuaProgramStore {
             for (Map.Entry<String, ?> entry : programs.getAll().entrySet()) {
                 if (!valid(entry.getKey()) || !(entry.getValue() instanceof String)) continue;
                 try {
-                    String name = new JSONObject((String) entry.getValue()).getString("name");
-                    catalog.put(identity(entry.getKey(), name));
+                    JSONObject published = new JSONObject((String) entry.getValue());
+                    String name = published.getString("name");
+                    JSONObject meta = published.optJSONObject("meta");
+                    catalog.put(identity(entry.getKey(), name,
+                        meta == null ? "1.0.0" : meta.optString("version", "1.0.0"),
+                        meta == null ? "" : meta.optString("description", "")));
                 } catch (JSONException ignored) {
                     // Skip malformed entries while keeping the rest of Programs available.
                 }
@@ -62,6 +66,11 @@ final class LuaProgramStore {
                         modules == null || name.isEmpty() || name.length() > 70) {
                     return error("Choose a valid Lua Studio project.");
                 }
+                JSONObject meta = project.optJSONObject("meta");
+                if (meta != null && (!meta.optString("version", "1.0.0").matches("[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}") ||
+                    meta.optString("description", "").length() > 160)) {
+                    return error("Invalid application version or description.");
+                }
                 project.remove("_debug");
                 project.put("name", name);
                 String stored = project.toString();
@@ -86,7 +95,9 @@ final class LuaProgramStore {
                 if (total > MAX_TOTAL_CHARS) return error("The published Lua program collection is full.");
                 if (id.isEmpty()) id = PREFIX + UUID.randomUUID().toString().replace("-", "");
                 if (!programs.edit().putString(id, stored).commit()) return error("Couldn’t save the Lua program.");
-                return identity(id, name).toString();
+                return identity(id, name,
+                    meta == null ? "1.0.0" : meta.optString("version", "1.0.0"),
+                    meta == null ? "" : meta.optString("description", "")).toString();
             } catch (JSONException error) {
                 return error("Couldn’t read the Lua project.");
             }
@@ -104,8 +115,9 @@ final class LuaProgramStore {
         return id != null && id.matches(PREFIX + "[a-f0-9]{32}");
     }
 
-    private static JSONObject identity(String id, String name) throws JSONException {
-        return new JSONObject().put("id", id).put("name", name);
+    private static JSONObject identity(String id, String name, String version, String description) throws JSONException {
+        return new JSONObject().put("id", id).put("name", name)
+            .put("version", version).put("description", description);
     }
 
     private static String error(String message) {
