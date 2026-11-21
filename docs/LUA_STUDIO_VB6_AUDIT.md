@@ -131,3 +131,12 @@ For API examples and design details, see [Phase 2 guide](LUA_STUDIO_PHASE2.md).
 - [Microsoft: Code window objects and procedure selectors](https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/code-window)
 - [Microsoft: Object Browser](https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/use-the-object-browser)
 - [Microsoft: View menu / IDE windows](https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/view-menu)
+
+
+## Phase 4 (development branch only)
+
+- **Scoped text files — Implemented in source, Android test pending:** `files.read`, `write`, `list`, `remove` use async `Form_FileResult` and the native `C:\Lua Projects\AppData` workspace (memory-only in Studio previews). Limited to 32 files, 16 KiB each. **Not** general `Open`, `Input #`, `Print #`, or arbitrary file I/O.
+- **ListView columns — Partial:** up to four tab-delimited headings/rows; simple one-column collection semantics otherwise. No VB6 `ListItems.SubItems` full API.
+- **TreeView expand/collapse — Partial:** hierarchy inferred from slash-separated paths; no programmatic node collections or drag/drop.
+- **Code editor — Improved:** smart Enter indentation, multi-line soft Tab/Shift+Tab; no IntelliSense or visual code folding.
+- **Important:** No full VB6 compatibility or Windows ActiveX runtime has been added. See [Phase 4 guide](LUA_STUDIO_PHASE4.md).

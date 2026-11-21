@@ -1,6 +1,24 @@
 "use strict";
 
 const activeLuaProjects = new Map();
+const luaFileNamePattern = /^[A-Za-z][A-Za-z0-9_-]{0,31}\.(txt|csv|json)$/;
+const luaMaxFileBytes = 16384;
+function luaFileSize(text) { return new TextEncoder().encode(text).length; }
+
+// Studio previews have an in-memory sandbox. Published programs use the native
+// workspace directory with the same API and limits. No path traversal.
+function luaPreviewFile(files, action, name, text) {
+  if (!["read", "write", "list", "remove"].includes(action)) return {ok:false, error:"Unknown file operation."};
+  if (action !== "list" && !luaFileNamePattern.test(name)) return {ok:false, error:"Invalid file name."};
+  if (action === "list") return {ok:true, text:[...files.keys()].sort().join("\n")};
+  if (action === "read") return files.has(name) ? {ok:true,text:files.get(name)} : {ok:false,error:"File not found: " + name};
+  if (action === "remove") return files.delete(name) ? {ok:true} : {ok:false,error:"File not found: " + name};
+  if (luaFileSize(text) > luaMaxFileBytes) return {ok:false,error:"File is larger than 16 KiB."};
+  if (!files.has(name) && files.size >= 32) return {ok:false,error:"App file limit reached (32)."};
+  files.set(name, text);
+  return {ok:true};
+}
+
 
 function launchLuaProject(project, callbacks) {
   const session = luaSession();
@@ -8,6 +26,7 @@ function launchLuaProject(project, callbacks) {
   // Studio previews are deliberately ephemeral, avoiding accidental writes.
   const storageKey = /^lua-user-[a-f0-9]{32}$/.test(callbacks.storageId || "")
     ? "retro98-lua-storage:" + callbacks.storageId : "";
+  const previewFiles = new Map();
   let storage = {};
   if (storageKey) {
     try {
@@ -163,6 +182,28 @@ function launchLuaProject(project, callbacks) {
       callbacks.onEnd?.();
       return;
     }
+    // Bound file requests are executed outside the isolated Lua runtime. Responses
+    // return through the ordinary form event queue, never synchronously into Lua.
+    for (const request of result.files || []) {
+      if (!states.has(request.form) || !Number.isInteger(request.id) ||
+          !["read", "write", "list", "remove"].includes(request.action) ||
+          (request.action !== "list" && !luaFileNamePattern.test(request.name)) ||
+          queue.length >= 32) continue;
+      let response;
+      try {
+        if (storageKey && native?.luaWorkspaceFile) {
+          response = JSON.parse(native.luaWorkspaceFile(request.action, callbacks.storageId,
+            request.name || "", request.text || ""));
+        } else if (!storageKey) {
+          response = luaPreviewFile(previewFiles, request.action, request.name || "", request.text || "");
+        } else { response = {ok:false,error:"File storage is unavailable."}; }
+      } catch (error) { response = {ok:false,error:"Could not access the app folder."}; }
+      queue.push({form:request.form,name:"",event:"FileResult",args:{
+        id:request.id, action:request.action, name:request.name || "",
+        ok:response.ok === true, text:String(response.text || "").slice(0,16384),
+        error:String(response.error || "").slice(0,180)
+      }});
+    }
     // Only controls belonging to the current project can open dialogs.
     for (const request of result.dialogs || []) {
       if (states.has(request.form) && Number.isInteger(request.id) &&
@@ -197,6 +238,9 @@ function launchLuaProject(project, callbacks) {
       for (const [name, patch] of Object.entries(changesByControl)) {
         const control = model.controls.find(entry => entry.name === name);
         if (!control) continue;
+        if (Array.isArray(patch.columns) && control.type === "listview") {
+          control.columns = patch.columns.slice(0,4).filter(x => typeof x === "string" && x.length <= 24);
+        }
         if (Array.isArray(patch.items) && luaChoiceTypes.includes(control.type)) {
           control.items = patch.items.slice(0, 24).filter(item => typeof item === "string" && item.length <= 60);
         }

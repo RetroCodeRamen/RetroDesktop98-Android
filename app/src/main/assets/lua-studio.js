@@ -59,17 +59,83 @@ function luaCommonControlItems(control, node) {
   if (!["treeview", "listview", "tabstrip", "toolbar"].includes(control.type)) return;
   const items = control.items || [];
   if (control.type === "treeview" || control.type === "listview") {
-    const signature = JSON.stringify(items);
+    const signature = JSON.stringify([items, control.columns || []]);
     if (node.dataset.items !== signature) {
+      const previousSelection = node.value;
       node.replaceChildren();
-      for (const item of items) {
-        const depth = control.type === "treeview" ? Math.min(4, item.split("/").length - 1) : 0;
-        const caption = ("  ".repeat(depth)) + (control.type === "treeview" ? item.split("/").at(-1) : item);
-        node.add(new Option(caption, item));
+      const selectRow = value => {
+        if (!control.enabled || node.value === value) return;
+        node.value = value;
+        node.querySelectorAll("[data-lua-item]").forEach(row => {
+          row.setAttribute("aria-selected", String(row.dataset.luaItem === value));
+        });
+        node.dispatchEvent(new Event("change", {bubbles: true}));
+      };
+      if (control.type === "treeview") {
+        node._collapsed ||= new Set();
+        const hasChildren = item => items.some(other => other.startsWith(item + "/"));
+        const updateBranches = () => {
+          node.querySelectorAll("[data-lua-item]").forEach(row => {
+            const parentSegments = row.dataset.luaItem.split("/").slice(0, -1);
+            row.hidden = parentSegments.some((_, index) =>
+              node._collapsed.has(parentSegments.slice(0, index+1).join("/")));
+          });
+        };
+        for (const item of items) {
+          const row = element("div", "lua-tree-row");
+          row.dataset.luaItem = item;
+          row.setAttribute("role", "treeitem");
+          row.style.paddingLeft = (3 + Math.min(item.split("/").length - 1, 5) * 13) + "px";
+          if (hasChildren(item)) {
+            const toggle = element("button", "lua-tree-toggle", node._collapsed.has(item) ? "+" : "−");
+            toggle.type = "button";
+            toggle.tabIndex = -1;
+            toggle.setAttribute("aria-label", "Expand or collapse " + item);
+            toggle.addEventListener("click", event => {
+              event.stopPropagation();
+              if (node._collapsed.has(item)) node._collapsed.delete(item);
+              else node._collapsed.add(item);
+              toggle.textContent = node._collapsed.has(item) ? "+" : "−";
+              updateBranches();
+            });
+            row.append(toggle);
+            row.setAttribute("aria-expanded", String(!node._collapsed.has(item)));
+          } else row.append(element("span", "lua-tree-leaf", "•"));
+          row.append(element("span", "", item.split("/").at(-1)));
+          row.addEventListener("click", () => selectRow(item));
+          node.append(row);
+        }
+        updateBranches();
+      } else {
+        const headings = (control.columns || []).slice(0,4);
+        const count = Math.max(1, headings.length);
+        if (headings.length) {
+          const header = element("div", "lua-listview-row lua-listview-header");
+          header.style.gridTemplateColumns = `repeat(${count}, minmax(0, 1fr))`;
+          headings.forEach(text => header.append(element("span", "", text)));
+          node.append(header);
+        }
+        for (const item of items) {
+          const row = element("div", "lua-listview-row");
+          row.dataset.luaItem = item;
+          row.setAttribute("role", "option");
+          row.style.gridTemplateColumns = `repeat(${count}, minmax(0, 1fr))`;
+          const values = item.split("\t");
+          for (let index = 0; index < count; index++) {
+            row.append(element("span", "", values[index] || ""));
+          }
+          row.addEventListener("click", () => selectRow(item));
+          node.append(row);
+        }
       }
+      node.value = previousSelection;
       node.dataset.items = signature;
     }
-    if (node.value !== control.value) node.value = control.value;
+    node.value = control.value;
+    node.querySelectorAll("[data-lua-item]").forEach(row => {
+      row.setAttribute("aria-selected", String(row.dataset.luaItem === control.value));
+    });
+    node.setAttribute("aria-disabled", String(!control.enabled));
     return;
   }
   const signature = JSON.stringify([items, control.value]);
@@ -111,9 +177,10 @@ function luaObjectNode(control) {
     text = element("span");
     node.append(check, text);
   } else if (luaChoiceTypes.includes(control.type)) {
-    if (["tabstrip", "toolbar"].includes(control.type)) {
+    if (["tabstrip", "toolbar", "treeview", "listview"].includes(control.type)) {
       node = element("div", "lua-common-strip lua-" + control.type);
-      node.setAttribute("role", "group");
+      node.setAttribute("role", control.type === "treeview" ? "tree" : control.type === "listview" ? "listbox" : "group");
+      if (["treeview", "listview"].includes(control.type)) node.tabIndex = 0;
     } else {
       node = element("select", "text-entry lua-list-control lua-" + control.type);
       node.size = ["list", "treeview", "listview"].includes(control.type) ? 4 : 1;
@@ -186,6 +253,10 @@ function updateLuaObject(control, parts, design) {
   node.classList.toggle("lua-hidden-design", design && !control.visible);
   node.classList.toggle("lua-disabled-design", design && !control.enabled);
   node.hidden = !design && !control.visible;
+}
+
+function aNonEmptyLineBeforeCaret(editor) {
+  return /\S/.test(editor.value.slice(editor.value.lastIndexOf("\n", editor.selectionStart - 1) + 1, editor.selectionStart));
 }
 
 function renderLuaStudio(win) {
@@ -829,6 +900,11 @@ function renderLuaStudio(win) {
         selected = current.name = value;
         return value;
       }, 32, true);
+      if (current.type === "listview") {
+        field("Columns (tab separated)", current.columns.join("\t"), "text", value => {
+          current.columns = value.split("\t").slice(0,4).map(x => x.trim().slice(0,24)).filter(Boolean);
+        }, 128, true);
+      }
       if (luaChoiceTypes.includes(current.type)) {
         field("Items (one per line)", current.items.join("\n"), "area", value => {
           current.items = [...new Set(value.split(/\r?\n/).map(line => line.trim().slice(0, 60)).filter(Boolean))].slice(0, 24);
@@ -1354,7 +1430,8 @@ function renderLuaStudio(win) {
     ["Control Arrays", "lua", () => switchProject(luaControlArrayExample())],
     ["Modal Dialog", "lua", () => switchProject(luaModalExample())],
     ["Common Controls", "lua", () => switchProject(luaCommonControlsExample())],
-    ["Common Dialogs", "lua", () => switchProject(luaDialogsExample())]
+    ["Common Dialogs", "lua", () => switchProject(luaDialogsExample())],
+    ["Pocket Notepad (Files)", "lua", () => switchProject(luaFilesExample())]
   ]);
   const help = windowMenu("Help", [
     ["Lua form events", "lua", () => showLuaHelp()],
@@ -1452,12 +1529,41 @@ function renderLuaStudio(win) {
       codeLineHeight()) + 1;
     markLine(line);
   });
+  // Small-screen source editing: soft tabs, block indent/outdent and smart Enter.
+  // Never modify the file on a navigation key or inside an IME composition.
   code.addEventListener("keydown", event => {
-    if (event.key === "Tab" && !event.shiftKey) {
+    if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.key === "Tab") {
       event.preventDefault();
-      if (code.value.length >= luaMaxCode - 2) return;
-      code.setRangeText("  ", code.selectionStart, code.selectionEnd, "end");
+      const a = code.selectionStart, b = code.selectionEnd;
+      const lineStart = code.value.lastIndexOf("\n", a - 1) + 1;
+      if (event.shiftKey && a === b) {
+        const prefix = code.value.slice(lineStart, a);
+        const remove = prefix.startsWith("  ") ? 2 : prefix.startsWith(" ") ? 1 : 0;
+        if (remove) code.setRangeText("", lineStart, lineStart + remove, "preserve");
+      } else if (a !== b && code.value.slice(a,b).includes("\n")) {
+        const blockStart = lineStart;
+        const blockEnd = code.value.indexOf("\n", b);
+        const end = blockEnd < 0 ? code.value.length : blockEnd;
+        const lines = code.value.slice(blockStart,end).split("\n");
+        const changed = lines.map(line => event.shiftKey ? line.replace(/^ {1,2}/, "") : "  " + line).join("\n");
+        if (code.value.length + changed.length - (end - blockStart) > luaMaxCode) return;
+        code.setRangeText(changed, blockStart, end, "select");
+      } else if (!event.shiftKey && code.value.length < luaMaxCode - 2) {
+        code.setRangeText("  ", a, b, "end");
+      }
       codeChanged();
+    } else if (event.key === "Enter" && aNonEmptyLineBeforeCaret(code)) {
+      event.preventDefault();
+      const a = code.selectionStart, b = code.selectionEnd;
+      const line = code.value.slice(code.value.lastIndexOf("\n", a-1)+1, a);
+      const indent = (line.match(/^[ \t]*/) || [""])[0];
+      const blockStart = /^\s*(?:function\b|if\b.*\bthen\s*$|for\b.*\bdo\s*$|while\b.*\bdo\s*$|repeat\b|else\s*$|elseif\b.*\bthen\s*$)/.test(line);
+      const addition = "\n" + indent + (blockStart ? "  " : "");
+      if (code.value.length + addition.length - (b - a) <= luaMaxCode) {
+        code.setRangeText(addition, a, b, "end");
+        codeChanged();
+      }
     }
   });
   win.node.addEventListener("keydown", event => {
@@ -1627,6 +1733,9 @@ function showLuaHelp() {
       "an event table with key, code, x, y, button, shift, ctrl, and alt where applicable. " +
       "TreeView, ListView, TabStrip and Toolbar use an Items list and Value selection; StatusBar uses Text. " +
       "Use ui.setItems(name, newlineSeparatedItems) to replace selectable options. " +
+      "Use files.read(name), files.write(name,text), files.list(), files.remove(name); " +
+      "handle Form_FileResult(event) for asynchronous results. " +
+      "ListView supports up to four tab-separated column headings via ui.setColumns. " +
       "ui.dialog(kind, title, message, defaultValue) opens a nonblocking message, confirm, input or color dialog. " +
       "Handle Form_DialogResult(event) with event.id, event.kind, event.accepted and event.value. " +
       "Use Edit for designer Undo, Redo, Copy, and Paste. Control arrays share one handler: " +
@@ -1660,6 +1769,9 @@ function showLuaBrowser(studio) {
     ["ui.dialog(kind, title, message, defaultValue)", "Open message, confirm, input, or color dialog. Returns a request ID; handle Form_DialogResult(event)."],
     ["Form_DialogResult(event)", "Async dialog result: event.id, event.kind, event.accepted, event.value. No blocking or synchronous return."],
     ["ui.getItems(name, form)", "Return newline-separated items for a ListBox, ComboBox, TreeView, ListView, TabStrip or Toolbar."],
+    ["files.read(name), files.write(name, text)", "Private .txt/.csv/.json files (16 KiB max). Reply arrives in Form_FileResult(event)."],
+    ["files.list(), files.remove(name)", "List or remove files in the app namespace. Preview storage is temporary."],
+    ["ui.getColumns(name), ui.setColumns(name, headers)", "ListView column headings, separated by tabs; at most four."],
     ["ui.setItems(name, text, form)", "Replace a selectable control's items with newline-separated names (up to 24)."],
     ["store.get(key), store.set(key, value), store.remove(key)", "Per-program small string settings store. Persisted for published Lua programs, temporary in Studio Run."],
     ["*_Change(value)", "Changed text, checkbox, selection or scrollbar. First argument is the new value."],

@@ -898,3 +898,20 @@ img { flex: 0 0 auto; user-select: none; vertical-align: middle; pointer-events:
 .lua-common-dialog-label { display: block; line-height: 1.35; overflow-wrap: anywhere; }
 .lua-common-dialog .text-entry { min-height: 27px; width: 100%; box-sizing: border-box; }
 .lua-common-dialog-actions { display: flex; justify-content: flex-end; gap: 7px; flex-wrap: wrap; margin-top: auto; }
+
+/* Lua Studio Phase 4: real expandable trees and multi-column ListView, compact-friendly. */
+.lua-control .lua-treeview, .lua-control .lua-listview {
+  display: block; overflow: auto; width: 100%; height: 100%; box-sizing: border-box;
+  background: #fff; color: #111; border: 2px inset #ddd;
+  white-space: nowrap; font: 12px Arial, sans-serif; touch-action: pan-y;
+}
+.lua-tree-row { display: flex; align-items: center; gap: 3px; min-height: 23px; cursor: default; }
+.lua-tree-row[hidden] { display: none; }
+.lua-tree-row[aria-selected="true"], .lua-listview-row[aria-selected="true"] { background: #000080; color: #fff; }
+.lua-tree-toggle { width: 16px; height: 16px; padding: 0; border: 1px solid #888; background: #eee; color: #111; font: bold 13px Arial; line-height: 12px; flex: 0 0 16px; }
+.lua-tree-leaf { width: 16px; text-align: center; flex: 0 0 16px; color: #888; }
+.lua-listview-row { display: grid; align-items: center; min-height: 24px; cursor: default; border-bottom: 1px solid #eee; }
+.lua-listview-row > span { min-width: 0; padding: 3px 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lua-listview-header { background: #c0c0c0; color: #000; font-weight: bold; position: sticky; top: 0; z-index: 1; }
+.lua-listview-header > span { border-right: 1px solid #fff; }
+.lua-control [aria-disabled="true"] { opacity: .6; pointer-events: none; }

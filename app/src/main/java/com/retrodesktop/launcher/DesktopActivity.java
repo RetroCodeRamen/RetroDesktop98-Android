@@ -987,6 +987,13 @@ public class DesktopActivity extends Activity {
             preferences.edit().putString("lua-project", data).putString("lua-workspace-program", id).apply();
         }
 
+        // Lua file operations are capped, scoped and validated on the native side.
+        @JavascriptInterface
+        public String luaWorkspaceFile(String action, String program, String name, String text) {
+            return LuaProjectFiles.operate(DesktopActivity.this, program,
+                    action == null ? "" : action, name, text).toString();
+        }
+
         @JavascriptInterface
         public String loadLuaProject() {
             return preferences.getString("lua-project", "");

@@ -36,7 +36,7 @@ const luaTextTypes = ["text", "multiline"];
 
 // VB6's Object and Procedure dropdowns are separate. Events remain Lua handlers.
 // The first event for each control is its default double-click designer action.
-const luaFormEvents = ["Load", "Activate", "Unload", "Click", "DblClick", "MouseDown", "MouseUp", "KeyDown", "KeyUp", "DialogResult"];
+const luaFormEvents = ["Load", "Activate", "Unload", "Click", "DblClick", "MouseDown", "MouseUp", "KeyDown", "KeyUp", "DialogResult", "FileResult"];
 const luaPointerEvents = ["Click", "DblClick", "MouseDown", "MouseUp"];
 const luaFocusEvents = ["GotFocus", "LostFocus", "KeyDown", "KeyUp"];
 function luaEventsForType(type) {
@@ -67,7 +67,7 @@ function luaColor(value, fallback) {
 function luaControl(type, name, text, x, y, width, height) {
   return {type, name, text, x, y, width, height, arrayName: "", arrayIndex: 0,
     visible: true, enabled: type !== "timer",
-    checked: false, value: luaRangeTypes.includes(type) ? 0 : "", items: [],
+    checked: false, value: luaRangeTypes.includes(type) ? 0 : "", items: [], columns: [],
     group: "Group1", tabStop: true, tabIndex: 0, min: 0, max: 100, interval: 1000, color: "#000080", shape: "rectangle", image: ""};
 }
 
@@ -144,12 +144,14 @@ function luaProject(value) {
       const height = luaWhole(control.height, 18, form.height);
       const items = Array.isArray(control.items) ?
         [...new Set(control.items.slice(0, 24).map(item => luaText(item, 60)).filter(Boolean))] : [];
+      const columns = control.type === "listview" && Array.isArray(control.columns) ?
+        control.columns.slice(0, 4).map(label => luaText(label, 24).trim()).filter(Boolean) : [];
       const min = luaWhole(control.min, -10000, 9999, 0);
       const max = luaWhole(control.max, min + 1, 10000, Math.max(min + 1, 100));
       const image = luaText(control.image, 85001);
       return {...luaControl(control.type, id, luaText(control.text, 500),
         luaWhole(control.x, 0, form.width - width), luaWhole(control.y, 0, form.height - height), width, height),
-        arrayName, arrayIndex, items, checked: control.checked === true, enabled: control.enabled !== false, visible: control.visible !== false,
+        arrayName, arrayIndex, items, columns, checked: control.checked === true, enabled: control.enabled !== false, visible: control.visible !== false,
         group: luaText(control.group, 32, "Group1") || "Group1", min, max, tabStop: control.tabStop !== false,
         tabIndex: luaWhole(control.tabIndex, 0, 99, 0),
         value: luaRangeTypes.includes(control.type) ? luaWhole(control.value, min, max, min) :
@@ -291,4 +293,33 @@ function luaDialogsExample() {
     'function Form_DialogResult(event)\n  if event.accepted then\n    ui.set("Result1", "text", event.kind .. ": " .. event.value)\n  else\n    ui.set("Result1", "text", "Canceled: " .. event.kind)\n  end\nend\n';
   return {format: luaProjectFormat, version: 2, name: "Common Dialogs", startup: "MainForm",
     forms: [form], modules: []};
+}
+
+// The same API works in a Studio preview (temporary files) or a published
+// app (its private folder under C:\\Lua Projects\\AppData).
+function luaFilesExample() {
+  const form = luaNewForm("MainForm");
+  form.caption = "Pocket Notepad"; form.width = 355; form.height = 255;
+  form.controls.push(luaControl("multiline", "Memo1", "", 12, 14, 326, 143));
+  form.controls.push(luaControl("button", "Save1", "Save Note", 12, 172, 144, 32));
+  form.controls.push(luaControl("button", "Load1", "Load Note", 178, 172, 153, 32));
+  form.controls.push(luaControl("statusbar", "Status1", "Ready", 12, 216, 326, 26));
+  form.code = `function Save1_Click()
+  files.write("note.txt", ui.get("Memo1", "text"))
+end
+
+function Load1_Click()
+  files.read("note.txt")
+end
+
+function Form_FileResult(event)
+  if not event.ok then
+    ui.set("Status1", "text", event.error)
+    return
+  end
+  if event.action == "read" then ui.set("Memo1", "text", event.text) end
+  ui.set("Status1", "text", event.action .. " complete")
+end
+`;
+  return {format: luaProjectFormat, version: 2, name: "Pocket Notepad", startup: "MainForm", forms: [form], modules: []};
 }
