@@ -1,0 +1,42 @@
+# Android and Gradle build output
+.gradle/
+.idea/
+**/build/
+local.properties
+*.iml
+*.apk
+*.aab
+*.apks
+*.idsig
+
+# Never commit signing credentials
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.pem
+*.key
+*.asc
+*.env
+.env.*
+signing.properties
+
+# Downloaded models, ROMs and locally imported games
+*.litertlm
+*.gguf
+*.tflite
+*.onnx
+*.dosz
+*.jsdos
+*.iso
+*.cue
+*.chd
+*.rom
+*.bin
+
+# Local tooling and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+__pycache__/
+*.pyc
