@@ -1,22 +1,26 @@
 # Roadmap
 
-## Current baseline: v2.7 (Android install-alignment repaired)
+## Current development: v2.9 DOS Gaming Deluxe (experimental)
 
-This repository begins with the v2.7 source that was confirmed to install successfully on the target phone. The launcher includes the DOSBox audio update, Sound Blaster 16 configuration and the directional touch pad. v2.8 features below are *not yet implemented*.
+- [x] Native WebView fullscreen with in-app restore and Android Back support
+- [x] Auto/Landscape/Portrait orientation preference for fullscreen
+- [x] Remappable fullscreen on-screen touch buttons, drag positions, size, transparency
+- [x] HTML Gamepad API button mappings and left analog stick directions, saved per package
+- [x] Per-package CPU, Sound Blaster/IRQ and screen scaling presets
+- [x] New browser/input/profile regression tests
+- [ ] Real phone tests for WebView overlay, touchscreen, Android Back and external gamepads
+- [ ] Improved game cover gallery, favorites and recently played
+- [ ] True analog mouse controls, joystick emulation and HID fallbacks
+- [ ] Stable signed Android release after device testing
 
-## v2.8 — DOS Gaming Deluxe (planned)
+## Lua Studio
 
-- [ ] True fullscreen DOSBox rendering with a clear return-to-windowed control
-- [ ] Per-game Bluetooth/USB gamepad button mapping and saved profiles
-- [ ] Customizable touch control positions and button layouts per game
-- [ ] Virtual mouse for point-and-click adventures
-- [ ] Per-game CPU, SB16/AdLib and scaling settings
-- [ ] Persist game files reliably and test control mapping with real games
+Lua Studio phases 1–6 remain in development. The integrated build includes controls, dialog APIs, debugging, file storage, published Lua apps, and per-app SQLite. See `docs/LUA_STUDIO_PHASE6.md` and the draft development pull requests for status.
 
 ## Release gates
 
-1. Check the included source test: `node tests/dosbox-audio.test.js`.
-2. Build with the Android SDK and compare signature certificate with the last installed APK.
-3. Verify native `.so` libraries are 16 KiB aligned and `resources.arsc` is 4-byte aligned, then run `python3 tests/check_apk_package.py PATH_TO_APK`.
-4. Actually install as an update on Android and confirm launching as default Home app.
-5. Smoke-test games, audio, touchscreen and external gamepad before publishing a release.
+1. All `node tests/*.test.js` tests pass.
+2. Android GitHub Actions build succeeds and the package is signed and ZIP aligned.
+3. Test on Android device as default launcher, with real game audio and touch input.
+4. Ensure game files survive Save/Close and a launcher restart.
+5. Reconcile signing certificate before an in-place update; otherwise uninstall the existing app only after exporting important data.

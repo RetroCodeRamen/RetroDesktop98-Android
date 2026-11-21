@@ -338,8 +338,11 @@ public class DesktopActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (dosBox != null && dosBox.exitFullscreen()) return;
         desktopBack();
     }
+
+    void requestDosPlacement() { evaluate("window.syncDosBoxPosition()"); }
 
     private void desktopBack() {
         if (!pageReady) return;

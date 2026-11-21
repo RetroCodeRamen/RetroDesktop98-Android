@@ -1,0 +1,61 @@
+// Run: node tests/dosbox-deluxe.test.js
+"use strict";
+const assert = require("node:assert/strict");
+const fs=require("node:fs"),path=require("node:path");
+const model=require("../app/src/main/assets/dosbox/deluxe-profile.js");
+const root=path.join(__dirname,"..","app","src","main");
+const read=p=>fs.readFileSync(path.join(root,p),"utf8");
+const defaultProfile=model.defaults();
+assert.equal(defaultProfile.touch.a,341);
+assert.equal(defaultProfile.gamepad[0],341);
+assert.deepEqual(defaultProfile.positions.up,[15,65]);
+assert.equal(Object.keys(defaultProfile.positions).length,8);
+const malicious=model.normalize({cycles:"5000000\n[autoexec]\nformat c:",orientation:"evil",sb:"wat",irq:100,
+  touchSize:900,touchOpacity:-50,deadzone:9,
+  touch:{a:"<script>",b:-1},gamepad:{0:"999",1:32},positions:{a:[-999,999],b:["nan",10000]}});
+assert.equal(malicious.cycles,"auto");
+assert.equal(malicious.orientation,"auto");
+assert.equal(malicious.sb,"sb16");
+assert.equal(malicious.irq,7);
+assert.equal(malicious.touchSize,86);
+assert.equal(malicious.touchOpacity,30);
+assert.equal(malicious.deadzone,0.85);
+assert.equal(malicious.touch.a,341);
+assert.equal(malicious.touch.b,-1);
+assert.equal(malicious.gamepad[0],341);
+assert.equal(malicious.gamepad[1],32);
+assert.deepEqual(malicious.positions.a,[3,94]);
+assert.deepEqual(malicious.positions.b,[91,94]);
+const profile=model.normalize({cycles:"6000",sb:"sbpro2",irq:"5"});
+const original="[midi]\nmpu401=intelligent\n[autoexec]\ncall start.bat";
+const configured=model.configure(original,profile);
+assert.match(configured,/\[cpu\]\ncycles=fixed 6000/);
+assert.match(configured,/\[sblaster\]\nsbtype=sbpro2\nirq=5/);
+assert.match(configured,/\[autoexec\]\ncall start\.bat$/);
+assert.equal((configured.match(/\[autoexec\]/g)||[]).length,1);
+assert.match(model.configure("[cpu]\ncycles=auto\n[autoexec]\nRUN",{cycles:"20000"}),/cycles=fixed 20000/);
+const html=read("assets/dosbox/player.html"), js=read("assets/dosbox/player.js"),ui=read("assets/dosbox/player-deluxe.js");
+const css=read("assets/dosbox/player.css"), java=read("java/com/retrodesktop/launcher/DesktopDosBox.java");
+const activity=read("java/com/retrodesktop/launcher/DesktopActivity.java");
+for(const id of ["fullscreen-exit","fullscreen-toggle","deluxe-settings","deluxe-touch","layout-edit","deluxe-mapping","deluxe-padmap","orientation","cycles","sb","irq","screen"]){
+ assert.ok(html.includes(`id="${id}"`),`Missing ${id}`);
+}
+for(const id of Object.keys(defaultProfile.touch)) assert.ok(html.includes(`data-touch="${id}"`));
+assert.ok(html.indexOf('src="/deluxe-profile.js"')<html.indexOf('src="/player.js"'));
+assert.ok(html.indexOf('src="/player.js"')<html.indexOf('src="/player-deluxe.js"'));
+assert.match(css,/body\.dos-fullscreen #controls\{display:none\}/);
+assert.match(java,/case "fullscreen":/);
+assert.match(java,/void setFullscreen\(boolean enabled\)/);
+assert.match(java,/void suspend\(\)/);
+assert.match(java,/void orientation\(String mode\)/);
+assert.match(java,/player-deluxe\\\\\.js\|deluxe-profile/);
+assert.match(activity,/dosBox\.exitFullscreen\(\)/);
+assert.match(js,/setInputSource\("kbd:"\+event\.code/);
+assert.match(js,/window\.RetroDosDeluxe\?\.loadProfile\(cacheKey\)/);
+assert.match(js,/window\.RetroDosDeluxe\?\.configure/);
+assert.match(js,/window\.RetroDosDeluxe\?\.isSettingsOpen\(\)/);
+assert.match(ui,/navigator\.getGamepads/);
+assert.match(ui,/localStorage\.setItem\(profileKey\(\)/);
+assert.match(ui,/requestAnimationFrame\(pollGamepad\)/);
+assert.match(ui,/setInputSource\(source,0,false\)/);
+console.log("PASS DOS Deluxe: profile bounds, DOS configuration, UI assets, native fullscreen, touch/gamepad wiring");

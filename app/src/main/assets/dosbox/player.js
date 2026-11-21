@@ -19,6 +19,24 @@ const AUDIO_MAX_AHEAD = 0.28;
 const AUDIO_LEAD = 0.02;
 const held = new Set();
 const mouseButtons = new Map();
+const inputSources = new Map();
+function sendVirtual(code, down) {
+  if (code === -1 || code === -2) emulator?.sendMouseButton(-code - 1, down);
+  else sendKey(code, down);
+}
+function setInputSource(source, code, down) {
+  const previous = inputSources.get(source);
+  if (previous !== undefined && (!down || previous !== code)) {
+    inputSources.delete(source);
+    if (![...inputSources.values()].includes(previous)) sendVirtual(previous, false);
+  }
+  if (down && code && !inputSources.has(source)) {
+    const alreadyHeld = [...inputSources.values()].includes(code);
+    inputSources.set(source, code);
+    if (!alreadyHeld) sendVirtual(code, true);
+  }
+}
+
 const controls = [...document.querySelectorAll("button"), command];
 
 function message(text) {
@@ -36,13 +54,15 @@ function sendKey(code, down) {
 function releaseKeys() {
   for (const key of held) emulator?.sendKeyEvent(key, false);
   held.clear();
+  for (const value of new Set(inputSources.values())) if (value < 0) sendVirtual(value, false);
+  inputSources.clear();
   for (const button of mouseButtons.values()) emulator?.sendMouseButton(button, false);
   mouseButtons.clear();
 }
 
 function updatePause() {
   if (!emulator) return;
-  if (paused || !active) {
+  if (paused || !active || window.RetroDosDeluxe?.isSettingsOpen()) {
     releaseKeys();
     emulator.pause();
     soundAt = 0;
@@ -57,6 +77,7 @@ function updatePause() {
 
 window.dosboxVisible = showing => {
   active = showing;
+  window.RetroDosDeluxe?.visibleChanged(showing);
   updatePause();
 };
 
@@ -77,26 +98,25 @@ function keyCode(code) {
 
 for (const eventName of ["keydown", "keyup"]) {
   document.addEventListener(eventName, event => {
-    if (event.target === command || !emulator || (event.target.matches("button") && ["Enter","Space"].includes(event.code))) return;
+    if (event.target === command || !emulator || window.RetroDosDeluxe?.isSettingsOpen() || event.target.closest("input,select,textarea") || (event.target.matches("button") && ["Enter","Space"].includes(event.code))) return;
     const code = keyCode(event.code);
     if (!code) return;
     event.preventDefault();
-    sendKey(code, eventName === "keydown");
+    setInputSource("kbd:"+event.code, code, eventName === "keydown");
   });
 }
 window.addEventListener("blur", releaseKeys);
 
 for (const button of document.querySelectorAll("[data-key]")) {
-  const code = Number(button.dataset.key);
   button.addEventListener("pointerdown", event => {
     button.setPointerCapture(event.pointerId);
-    sendKey(code, true);
+    setInputSource("button:" + event.pointerId, Number(button.dataset.key), true);
   });
   for (const eventName of ["pointerup","pointercancel","lostpointercapture"]) {
-    button.addEventListener(eventName, () => sendKey(code, false));
+    button.addEventListener(eventName, event => setInputSource("button:" + event.pointerId, 0, false));
   }
   button.addEventListener("click", event => {
-    if (event.detail === 0) emulator?.simulateKeyPress(code);
+    if (event.detail === 0) emulator?.simulateKeyPress(Number(button.dataset.key));
   });
 }
 
@@ -243,7 +263,7 @@ for (const target of [canvas, document.getElementById("keys"), command]) {
 
 function playSound(samples) {
   if (!emulator || !audioEnabled || !sound || sound.state !== "running" ||
-      !samples || !samples.length || !active || paused) return;
+      !samples || !samples.length || !active || paused || window.RetroDosDeluxe?.isSettingsOpen()) return;
   const frequency = emulator.soundFrequency();
   if (!Number.isFinite(frequency) || frequency < 8000 || frequency > 192000) return;
   const now = sound.currentTime;
@@ -359,8 +379,10 @@ async function start() {
       const saved = await cache("read");
       if (saved instanceof Uint8Array) input.splice(0, input.length, saved);
     } catch (error) { /* A fresh DOS session is available if storage is disabled. */ }
+    window.RetroDosDeluxe?.loadProfile(cacheKey);
     input.push(config);
     config.dosboxConf = configureSoundBlaster(config.dosboxConf);
+    config.dosboxConf = window.RetroDosDeluxe?.configure(config.dosboxConf) || config.dosboxConf;
     emulator = await emulators.dosboxWorker(input);
     const events = emulator.events();
     frameSize(Math.max(1,emulator.width()),Math.max(1,emulator.height()));
@@ -375,6 +397,7 @@ async function start() {
     try { const image = await emulator.screenshot(); if (image.width > 0) painter.putImageData(image,0,0); } catch (error) { }
     controls.forEach(control => { control.disabled = false; });
     updatePause();
+    window.RetroDosDeluxe?.started();
     message(demo ? "DOSBox demo ready." : "DOSBox ready.");
   } catch (error) {
     console.error(error);

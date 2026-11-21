@@ -4,9 +4,39 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-eval'; worker-src 'self' blob:; connect-src 'self'; style-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; object-src 'none'">
 <title>DOSBox</title>
 <link rel="stylesheet" href="/player.css">
-<script defer src="/engine/emulators.js"></script><script defer src="/player.js"></script>
+<script defer src="/engine/emulators.js"></script><script defer src="/deluxe-profile.js"></script><script defer src="/player.js"></script><script defer src="/player-deluxe.js"></script>
 </head><body>
 <div id="picture"><canvas id="screen" width="640" height="400" tabindex="0" aria-label="DOSBox display"></canvas></div>
+<div id="fullscreen-bar"><button id="fullscreen-exit" type="button">↙ Desktop</button>
+<span>DOSBox Deluxe</span><button id="fullscreen-settings" type="button">Controls / Setup</button><span id="gamepad-state">No controller connected</span></div>
+<div id="deluxe-touch" aria-label="Fullscreen touch game controls" hidden>
+<button data-touch="up" type="button" aria-label="Up">▲</button>
+<button data-touch="left" type="button" aria-label="Left">◀</button>
+<button data-touch="down" type="button" aria-label="Down">▼</button>
+<button data-touch="right" type="button" aria-label="Right">▶</button>
+<button data-touch="a" type="button">A</button><button data-touch="b" type="button">B</button>
+<button data-touch="start" type="button">START</button><button data-touch="esc" type="button">ESC</button>
+</div>
+<button id="layout-edit-full" type="button" hidden>Done Moving Controls</button>
+<div id="deluxe-settings" role="dialog" aria-label="DOSBox Deluxe Settings" hidden>
+<div class="settings-heading"><strong>DOSBox Deluxe · Game Profile</strong><button id="settings-close" type="button">Close</button></div>
+<p class="hint">Mappings, scaling, and touch layout save separately for each game. CPU and audio choices apply on next launch.</p>
+<div class="settings-grid">
+<label>Orientation<select id="orientation"><option value="auto">Auto</option><option value="landscape">Landscape</option><option value="portrait">Portrait</option></select></label>
+<label>Screen<select id="screen"><option value="fit">Keep Aspect Ratio</option><option value="stretch">Stretch to Fill</option></select></label>
+<label>CPU Cycles<select id="cycles"><option value="auto">Auto</option><option value="max">Max</option><option value="3000">3,000</option><option value="6000">6,000</option><option value="12000">12,000</option><option value="20000">20,000</option></select></label>
+<label>Sound Blaster<select id="sb"><option value="sb16">SB16</option><option value="sbpro2">SB Pro 2</option><option value="none">Off</option></select></label>
+<label>SB IRQ<select id="irq"><option value="7">7</option><option value="5">5</option></select></label>
+<label>Gamepad deadzone<input id="gamepad-deadzone" type="range" min="0.25" max="0.85" step="0.05"></label>
+<label>Touch button size<input id="touch-size" type="range" min="36" max="86" step="2"></label>
+<label>Touch opacity<input id="touch-opacity" type="range" min="30" max="100" step="5"></label>
+<label class="check"><input id="deluxe-touch-visible" type="checkbox"> Show fullscreen touchscreen controls</label>
+</div>
+<h3>Touch button mapping</h3><div id="deluxe-mapping" class="settings-grid"></div>
+<h3>Bluetooth / USB gamepad mapping</h3><div id="deluxe-padmap" class="settings-grid"></div>
+<p id="settings-restart-hint" class="hint"></p>
+<div class="settings-actions"><button id="layout-edit" type="button">Move Touch Buttons</button><button id="deluxe-reset" type="button">Reset Game Profile</button></div>
+</div>
 <div id="controls">
 <div id="keys" aria-label="Touch controls">
 <div id="direction-pad" role="group" aria-label="Directional pad">
@@ -23,7 +53,7 @@
 </div>
 </div>
 <form id="type"><input id="command" aria-label="DOS command or text" placeholder="Type a DOS command…" maxlength="110" autocomplete="off" spellcheck="false"><button>Send</button></form>
-<div id="tools"><button id="pause" type="button">Pause</button><button id="audio" type="button" aria-pressed="false" aria-label="Turn game audio on">Enable Sound</button><button id="test-audio" type="button">Test Speaker</button>
+<div id="tools"><button id="fullscreen-toggle" type="button">Fullscreen</button><button id="deluxe-settings-open" type="button">Game Settings</button><button id="pause" type="button">Pause</button><button id="audio" type="button" aria-pressed="false" aria-label="Turn game audio on">Enable Sound</button><button id="test-audio" type="button">Test Speaker</button>
 <button id="save" type="button">Save Game Files</button><span id="status" role="status">Starting DOSBox…</span></div>
 </div>
 </body></html>
