@@ -19,7 +19,7 @@ const gradle = fs.readFileSync(path.join(__dirname, "../app/build.gradle"), "utf
 assert.match(gradle, /applicationId 'com\.retrodesktop\.launcher\.resizable'/);
 assert.match(build, /package="com\.retrodesktop\.launcher\.resizable"/);
 assert.doesNotMatch(manifest, /resizable\.beta/);
-assert.match(gradle, /versionName .*2\\.9\\.3-permanent/);
+assert.ok(gradle.includes("2.9.3-permanent"));
 assert.match(gradle, /RETRO98_BUILD_VERSION_CODE/);
 
 // Calls to SQLite must cross the isolated process boundary. No direct SQL,
