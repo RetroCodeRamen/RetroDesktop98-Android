@@ -1,15 +1,18 @@
-name: Android APK
+name: Android APK — permanent signing
 
 on:
   push:
-    branches: [main, 'testing/lua-studio-phase6-replacement', 'feature/dos-gaming-deluxe-v29']
-    tags: ['v*']
-  pull_request:
     branches: [main, 'feature/dos-gaming-deluxe-v29']
+    tags: ['v*']
   workflow_dispatch:
 
+# Deliberately no pull_request trigger: untrusted PR code must not receive signing secrets.
 permissions:
   contents: write
+
+concurrency:
+  group: permanent-apk-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -26,38 +29,51 @@ jobs:
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager --install "platforms;android-35" "build-tools;35.0.1"
-      - name: Configure signing (optional)
+      - name: Require original Retro Desktop 98 signing certificate
         shell: bash
         env:
-          KEYSTORE_B64: ${{ secrets.RETRO98_KEYSTORE_B64 }}
-          KEY_PASSWORD: ${{ secrets.RETRO98_KEY_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.RETRO98_KEY_ALIAS }}
+          RETRO98_KEYSTORE_B64: ${{ secrets.RETRO98_KEYSTORE_B64 }}
+          RETRO98_KEY_PASSWORD: ${{ secrets.RETRO98_KEY_PASSWORD }}
         run: |
-          if [[ -n "$KEYSTORE_B64" && -n "$KEY_PASSWORD" ]]; then
-            printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/retro98-release.p12"
-            echo "RETRO98_KEYSTORE=$RUNNER_TEMP/retro98-release.p12" >> "$GITHUB_ENV"
-            echo "RETRO98_KEY_ALIAS=${KEY_ALIAS:-retro98}" >> "$GITHUB_ENV"
-            echo "RETRO98_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
-            echo "RELEASE_SIGNED=true" >> "$GITHUB_ENV"
-          else
-            echo "RELEASE_SIGNED=false" >> "$GITHUB_ENV"
-            echo "::warning::Building with a temporary development signing key. This APK cannot update the existing v2.7 installation."
+          set -euo pipefail
+          if [[ -z "${RETRO98_KEYSTORE_B64:-}" || -z "${RETRO98_KEY_PASSWORD:-}" ]]; then
+            echo '::error::Permanent signing secrets are missing. Add RETRO98_KEYSTORE_B64 and RETRO98_KEY_PASSWORD in repository Actions secrets.'
+            exit 1
           fi
-      - name: Build APK
+          umask 077
+          printf '%s' "$RETRO98_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/retro98-permanent.p12"
+          EXPECTED='3aef553e3b4218b5d4e4a44365c93b6a0f0d11c94088b976563b0c7766094433'
+          ACTUAL="$(keytool -list -v -storetype PKCS12 -keystore "$RUNNER_TEMP/retro98-permanent.p12" \
+            -storepass:env RETRO98_KEY_PASSWORD -alias retro98 | \
+            sed -n 's/^[[:space:]]*SHA256: //p' | head -n1 | tr -d ':' | tr 'A-F' 'a-f')"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo '::error::The configured keystore does not match the original v2.7 signing certificate.'
+            exit 1
+          fi
+          echo 'RETRO98_KEYSTORE='"$RUNNER_TEMP/retro98-permanent.p12" >> "$GITHUB_ENV"
+          echo 'RETRO98_KEY_ALIAS=retro98' >> "$GITHUB_ENV"
+          echo 'RETRO98_REQUIRE_PERMANENT_KEY=1' >> "$GITHUB_ENV"
+          echo "RETRO98_BUILD_VERSION_CODE=$((100000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+          echo "RETRO98_BUILD_VERSION_NAME=2.9.3-permanent.r${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          echo 'Original signing certificate verified; update-capable build authorized.'
+      - name: Build permanently signed APK
+        env:
+          RETRO98_KEY_PASSWORD: ${{ secrets.RETRO98_KEY_PASSWORD }}
         run: bash build-apk.sh "$RUNNER_TEMP/RetroDesktop98.apk"
-      - name: Verify APK packaging
+      - name: Check signature, package name, increasing version code, and APK ZIP layout
         run: |
           python3 tests/check_apk_package.py "$RUNNER_TEMP/RetroDesktop98.apk"
-          "$ANDROID_HOME/build-tools/35.0.1/apksigner" verify --verbose "$RUNNER_TEMP/RetroDesktop98.apk"
-      - name: Upload APK to workflow artifacts
+          python3 tests/verify_release_identity.py "$RUNNER_TEMP/RetroDesktop98.apk" \
+            "$ANDROID_HOME/build-tools/35.0.1/apksigner" "$ANDROID_HOME/build-tools/35.0.1/aapt2"
+      - name: Publish verified update APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RetroDesktop98-Android-apk
+          name: RetroDesktop98-PERMANENT-SIGNATURE-UPDATE-APK
           path: ${{ runner.temp }}/RetroDesktop98.apk
           if-no-files-found: error
-          retention-days: 30
-      - name: Publish release APK (only with original signing key)
-        if: startsWith(github.ref, 'refs/tags/v') && env.RELEASE_SIGNED == 'true'
+          retention-days: 90
+      - name: Publish signed GitHub Release on version tag
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ runner.temp }}/RetroDesktop98.apk

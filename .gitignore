@@ -40,3 +40,7 @@ Thumbs.db
 .vscode/
 __pycache__/
 *.pyc
+
+# CI signing secret export files — NEVER COMMIT
+RETRO98_KEYSTORE_B64.txt
+RETRO98_KEY_PASSWORD.txt
