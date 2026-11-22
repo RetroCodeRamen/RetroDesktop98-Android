@@ -50,7 +50,7 @@ for (const [dir,key,arrow] of directions) {
   assert.ok(html.includes(`data-key="${key}" class="${dir}" aria-label="${dir[0].toUpperCase()+dir.slice(1)}">${arrow}</button>`));
   assert.ok(css.includes(`#direction-pad .${dir} { grid-area:${dir}; }`));
 }
-assert.match(css, /grid-template-areas:"\. up \."><|grid-template-areas:"\. up \." "left down right"/);
+assert.match(css, /grid-template-areas:"\. up \." "left \. right" "\. down \."/);
 assert.ok(html.includes('id="test-audio"'));
 assert.ok(js.includes('if (!audioEnabled && !audioOptOut && !audioUnlockPromise)'));
 assert.ok(js.includes('sound.createOscillator()'));

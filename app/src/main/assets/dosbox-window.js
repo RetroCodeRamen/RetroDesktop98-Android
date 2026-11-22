@@ -14,7 +14,8 @@ function renderDosBox(win) {
     toolbarButton("Import Game…", () => native?.dosBoxCommand?.("choose", "")),
     toolbarButton("Store…", () => openWindow("dos-store")),
     toolbarButton("My DOS Games", () => openFileLocation("games")),
-    toolbarButton("Demo", () => native?.dosBoxCommand?.("demo", ""))
+    toolbarButton("Demo", () => native?.dosBoxCommand?.("demo", "")),
+    toolbarButton("Fullscreen", () => native?.dosBoxCommand?.("fullscreen", ""))
   );
   const status = appStatus("Ready");
   Object.assign(win, {dosBoxPanel:panel, dosBoxStatus:status,

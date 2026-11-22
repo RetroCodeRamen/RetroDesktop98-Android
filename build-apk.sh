@@ -14,6 +14,12 @@ output="${1:-$project/build/RetroDesktop98.apk}"
 deps="${RETRO98_DEPENDENCIES_DIR:-$project/build/dependencies}"
 signing_key="${RETRO98_KEYSTORE:-$project/build/development.keystore}"
 signing_alias="${RETRO98_KEY_ALIAS:-retro98}"
+if [[ "${RETRO98_REQUIRE_PERMANENT_KEY:-0}" == "1" ]]; then
+  if [[ ! -f "$signing_key" || -z "${RETRO98_KEY_PASSWORD:-}" ]]; then
+    echo "A permanent signing keystore and password are required; refusing to generate a temporary signing key." >&2
+    exit 1
+  fi
+fi
 export RETRO98_KEY_PASSWORD="${RETRO98_KEY_PASSWORD:-android}"
 
 mkdir -p "$(dirname -- "$output")" "$(dirname -- "$signing_key")"
@@ -47,7 +53,7 @@ sed 's/<manifest /<manifest package="com.retrodesktop.launcher.resizable" /' "$m
 "$tools/aapt2" compile --dir "$main/res" -o "$temp/resources.zip"
 "$tools/aapt2" link -o "$temp/unsigned.apk" -I "$platform" \
   --manifest "$temp/AndroidManifest.xml" --min-sdk-version 26 --target-sdk-version 35 \
-  --version-code 22 --version-name 2.8-lua-dev -A "$main/assets" "$temp/resources.zip"
+  --version-code "${RETRO98_BUILD_VERSION_CODE:-26}" --version-name "${RETRO98_BUILD_VERSION_NAME:-2.9.3-permanent}" -A "$main/assets" "$temp/resources.zip"
 
 mapfile -d '' sources < <(find "$main/java" -name '*.java' -print0)
 "${JAVAC:-javac}" -encoding UTF-8 -source 8 -target 8 -classpath "$classpath" -d "$temp/classes" "${sources[@]}"

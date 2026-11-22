@@ -2,6 +2,10 @@ package com.retrodesktop.launcher;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
+import android.os.Build;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.database.Cursor;
 import android.net.Uri;
 import android.provider.OpenableColumns;
@@ -44,6 +48,8 @@ final class DesktopDosBox {
     private Session current;
     private int request;
     private boolean visible;
+    private boolean fullScreen;
+    private int previousOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
 
     DesktopDosBox(DesktopActivity activity, FrameLayout frame, View desktop, Executor worker, Runnable interaction) {
         this.activity = activity;
@@ -51,6 +57,9 @@ final class DesktopDosBox {
         this.desktop = desktop;
         this.worker = worker;
         this.interaction = interaction;
+        frame.addOnLayoutChangeListener((view, l,t,r,b,ol,ot,or_,ob) -> {
+            if (fullScreen && player != null && (r-l != or_-ol || b-t != ob-ot)) placeFullscreen();
+        });
     }
 
     void command(String action, String value) {
@@ -65,6 +74,9 @@ final class DesktopDosBox {
                 break;
             case "workspace":
                 prepare(null, value, "", false);
+                break;
+            case "fullscreen":
+                setFullscreen(true);
                 break;
             case "close":
                 close();
@@ -175,7 +187,10 @@ final class DesktopDosBox {
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                if (player == view) view.evaluateJavascript("window.dosboxVisible?.(" + visible + ")", null);
+                if (player == view) {
+                    view.evaluateJavascript("window.dosboxVisible?.(" + visible + ")", null);
+                    view.evaluateJavascript("window.dosboxFullscreenState?.(" + fullScreen + ")", null);
+                }
             }
 
             @Override
@@ -205,7 +220,7 @@ final class DesktopDosBox {
                 return new WebResourceResponse("application/zip", null, 200, "OK",
                         Collections.singletonMap("Cache-Control", "no-store"), Files.newInputStream(session.file.toPath()));
             }
-            if (path == null || !path.matches("/(?:player\\.(html|css|js)|engine/(emulators\\.js|wdosbox\\.(js|wasm)|wlibzip\\.(js|wasm)|COPYING))")) return denied();
+            if (path == null || !path.matches("/(?:player\\.(html|css|js)|player-deluxe\\.js|deluxe-profile\\.js|engine/(emulators\\.js|wdosbox\\.(js|wasm)|wlibzip\\.(js|wasm)|COPYING))")) return denied();
             String mime = path.endsWith(".html") ? "text/html" : path.endsWith(".css") ? "text/css" :
                     path.endsWith(".js") ? "application/javascript" : path.endsWith(".wasm") ? "application/wasm" : "text/plain";
             return new WebResourceResponse(mime, path.endsWith(".wasm") ? null : "UTF-8",
@@ -220,14 +235,76 @@ final class DesktopDosBox {
 
     void place(int left, int top, int width, int height) {
         if (player == null) return;
-        boolean showing = DesktopBrowser.placeOverlay(desktop, player, left, top, width, height);
+        boolean showing = fullScreen ? placeFullscreen() : DesktopBrowser.placeOverlay(desktop, player, left, top, width, height);
         if (showing != visible) {
             visible = showing;
             player.evaluateJavascript("window.dosboxVisible?.(" + visible + ")", null);
         }
     }
 
-    void suspend() { place(0, 0, 0, 0); }
+    private boolean placeFullscreen() {
+        if (player == null) return false;
+        return DesktopBrowser.placeOverlay(desktop, player, 0, 0, desktop.getWidth(), desktop.getHeight());
+    }
+
+    void setFullscreen(boolean enabled) {
+        if (player == null || fullScreen == enabled) return;
+        fullScreen = enabled;
+        if (enabled) {
+            previousOrientation = activity.getRequestedOrientation();
+            applyWindowBars(true);
+            place(0, 0, 0, 0);
+        } else {
+            resetOrientation();
+            applyWindowBars(false);
+            DesktopBrowser.placeOverlay(desktop, player, 0, 0, 0, 0);
+            visible = false;
+            player.evaluateJavascript("window.dosboxVisible?.(false)", null);
+            activity.requestDosPlacement();
+        }
+        player.evaluateJavascript("window.dosboxFullscreenState?.(" + enabled + ")", null);
+    }
+
+    boolean exitFullscreen() {
+        if (!fullScreen) return false;
+        setFullscreen(false);
+        return true;
+    }
+
+    void orientation(String mode) {
+        if (!fullScreen) return;
+        int value = "landscape".equals(mode) ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE :
+                "portrait".equals(mode) ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT :
+                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+        activity.setRequestedOrientation(value);
+    }
+
+    private void resetOrientation() {
+        activity.setRequestedOrientation(previousOrientation);
+        previousOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+    }
+
+    private void applyWindowBars(boolean immersive) {
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController controller = activity.getWindow().getInsetsController();
+            if (controller != null) {
+                if (immersive) controller.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
+                else {controller.show(WindowInsets.Type.navigationBars()); controller.hide(WindowInsets.Type.statusBars());}
+            }
+        } else {
+            activity.getWindow().getDecorView().setSystemUiVisibility(
+                    immersive ? View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+                      View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY :
+                      View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        }
+    }
+
+    void suspend() {
+        if (player == null) return;
+        DesktopBrowser.placeOverlay(desktop, player, 0, 0, 0, 0);
+        visible = false;
+        player.evaluateJavascript("window.dosboxVisible?.(false)", null);
+    }
 
     void close() {
         request++;
@@ -235,6 +312,11 @@ final class DesktopDosBox {
     }
 
     private void disposePlayer() {
+        if (fullScreen) {
+            fullScreen = false;
+            resetOrientation();
+            applyWindowBars(false);
+        }
         if (player != null) {
             frame.removeView(player);
             player.removeJavascriptInterface("RetroDosBox");
@@ -255,6 +337,17 @@ final class DesktopDosBox {
     private final class Events {
         private final Session session;
         Events(Session session) { this.session = session; }
+
+        @JavascriptInterface
+        public void fullscreen(boolean enabled) {
+            activity.runOnUiThread(() -> { if (session == current) setFullscreen(enabled); });
+        }
+
+        @JavascriptInterface
+        public void orientation(String mode) {
+            if (!"auto".equals(mode) && !"landscape".equals(mode) && !"portrait".equals(mode)) return;
+            activity.runOnUiThread(() -> { if (session == current) DesktopDosBox.this.orientation(mode); });
+        }
 
         @JavascriptInterface
         public void status(String message) {
